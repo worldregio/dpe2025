@@ -1,0 +1,118 @@
+---
+title: "Exploration 1 : La précarité énergétique des quartiers de Rouen"
+subtitle: "Révisions de statistique bivariée"
+date: "15/09/2025"
+author: "Claude Grasland"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+library(knitr)
+library(dplyr)
+
+library(sf)
+library(mapsf)
+library(ggplot2)
+
+```
+
+
+Dans cette première exploration on va commencer en prendre en main les données en se donnant comme objectif d'étudier les variations de précarité énergétique entre les quartiers de la commune de Rouen. On se limitera à l'utilisation d'outils statistiques - apparemment - simples de statistique bivariée que l'on complexifiera progressivement.
+
+
+## 1. Données
+
+### Données géométriques
+
+
+On extrait du fond de carte des 42 IRIS la commune de Rouen et on crée un fonds de carte regroupant ceux-ci en 10 quartiers.
+
+```{r}
+map_iris <- readRDS("data/mapiris.RDS") %>% filter(substr(iris_code,1,5)=="76540")
+map_quart <- map_iris %>% group_by(quart_code, quart_name) %>%
+                         summarise() 
+map_com <- map_iris %>% summarise()
+
+
+mf_map(map_iris, type="typo",var="quart_code", border="white",lwd=0.5, leg_title = "Quartiers")
+mf_map(map_quart, type = "base", col=NA, add=T, border="black",lwd=1)
+mf_layout("Iris et quartiers de Rouen", frame = T, credits = "Source : IGN")
+```
+
+### Données statistiques
+
+On extrait du fichier DPE les diagnistics relatifs à la commune de Rouen et on sélectionne un nombre volontairement limité d'indicateurs.
+
+```{r}
+map_dpe<-readRDS("data/dpe.RDS") %>%
+           filter(com_code == "76540") %>%
+           select(quart_code, 
+                  quart_name,
+                  dpe,
+                  con_m2,
+                  dat,
+                  typ)
+don<-st_drop_geometry(map_dpe)
+kable(head(st_drop_geometry(don)), caption= "Extrait du fichier DPE")
+```
+
+### Superposition
+
+On superpose les deux sources de données en utilisant les localisations du fichier dpe : 
+
+```{r}
+
+mf_map(map_quart, type = "base", col="lightyellow", border="black",lwd=1)
+mf_map(map_dpe, type="base", col="red",pch=20, cex=0.1, add=T)
+mf_layout("Localisation des DEP par quartiers de Rouen", frame = T, credits = "Source : IGN")
+```
+
+
+## 2. Variable à expliquer (Y)
+
+Quelle est la variable que nous souhaitons analyser ? Les passoires énergétiques sont en principe définies par l'appartenance aux catégories énergétiques F et G. Mais d'où viennent ces étiquettes ?
+
+### Etiquette et consommation d'énergie primaire par m2
+
+Même si la correspondance n'est pas parfaite, il existe un lien étroit entre la consommation d'énergie primaire par m2 de logement habitable et l'étiquette DPE attribuée par l'ADEME.
+
+```{r}
+mypal7<-c("green4","green3","lightgreen","yellow","goldenrod1","darkorange","red")
+ggplot(don) + aes(x=dpe,y=con_m2)+
+              geom_violin(aes(fill=dpe)) + 
+              scale_y_log10("Consommation d'énergie primaire par m2") + 
+              scale_x_discrete("Etiquette DPE")+
+              scale_fill_manual(values=mypal7) + 
+              theme_light() +
+              ggtitle(label = "Relation entre étiquettes et consommation d'énergie",
+                      subtitle = "Source : Base DPE, Commune de Rouen"
+                        )
+```
+
+Ceci suggère que l'analyse pourrait dans certains cas porter sur cette **variable quantitative continue** plutôt que sur la variable **qualitative ordinale** qu'est l'étiquette.
+

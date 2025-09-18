@@ -7,12 +7,16 @@ website:
     left:
       - text: A propos
         href: index.qmd
-      - text: Données
+      - text: Préparation des Données
         menu:
           - text: Choix de la zone d'étude
             href: choix_geom.qmd
           - text: Extraction des DPE
             href: choix_dpe.qmd
+      - text: Exploration statistique
+        menu:
+          - text: Les quartiers de Rouen
+            href: explor1_rouen.qmd
     right: 
       - icon: github # add icons as navbar buttons
         href: https://github.com/worldregio/dpe2025
