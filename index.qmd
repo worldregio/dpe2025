@@ -1,0 +1,64 @@
+---
+title: "Approches quantitatives pour l’action publique"
+subtitle: "Master 2 Geoprisme – Université Paris 1 Panthéon Sorbonne – Université Paris Cité"
+date: "01/09/2025"
+author: "Edwige Dubos-Paillard, Marianne Guerois, Claude Grasland,  Sophie Baudet-Michel,Mathia Bunel"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: false
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+
+## Objectifs généraux
+
+Les données sont essentielles pour l’action publique. Elles permettent l’observation des territoires à différentes échelles, sont nécessaires pour la planification dans de nombreux domaines tels que l’aménagement du territoire, la politique de la ville, la transition écologique ou encore les déplacements. Elles permettent également le pilotage des politiques publiques ainsi que  leur évaluation (Ministère de la Transformation et de la Fonction publiques, 2023). 
+
+Ces dernières années ont vu une multiplication des bases de données sur des territoires de plus en plus étendus et à des échelles de plus en plus fines en raison de l’évolution des possibilités de stockage et de calcul, mais aussi d’un nombre croissant de réglementations. La France est un des pays les plus avancés en matière d’ouverture des données publiques. Avec la loi pour une République numérique de 2016, elle a posé le principe de l’ouverture des données par défaut (sauf exceptions légales) et introduit une obligation d’open data pour toutes les collectivités de plus de 3500 habitants. Cette mise à disposition s’inscrit dans une volonté de transparence de l’action publique, de modernisation et d’amélioration de l’action publique et enfin de développement économique lié à la réutilisation des données publiques. Cependant, si la loi impose la mise à disposition des données publiques, elle n’impose pas aux producteurs dont ce n’est pas la mission principale tels que l’INSEE, une vérification systématique de leur qualité et de leur représentativité à différentes échelles. Ces  données nécessitent donc une analyse critique sur leur exploitation et leur comparabilité. 
+
+Comment les bureaux d’études, les chercheurs peuvent-ils se saisir et analyser ces données ? Voici les compétences que ce cours propose aux étudiants d’acquérir à travers i) une initiation théorique aux méthodes de l’analyse statistique en géographie (séances de cours) ii) une mise en œuvre pratique à travers l’utilisation de deux bases de données : l’une produite par l’Ademe sur les caractéristiques énergétiques des logements, l’autre par l’INSEE sur les caractéristiques de l’habitat.
+
+Il s’agit dans ce volet pratique de se mettre en situation de réponse à une commande (fictive cette année) émanant d’une collectivité (Rouen) ou d’un organisme (Ademe) en charge de la diffusion de données publiques. L’objectif est de manipuler deux bases de données massives de deux origines pour permettre une compréhension territorialisée des inégalités du bâti résidentiel dans la transition énergétique. Les participant.e.s mettront en place un protocole allant de la collecte de données hétérogènes via des API,  à leur exploitation à l’aide de méthodes adaptées. Ce protocole intègrera une réflexion sur la sélection des informations pertinentes en tenant compte de leur représentativité et des biais éventuels et leur extraction sur le territoire étudié.
+
+## Evaluation 2025-26
+
+En 2025-2026, les étudiant.e.s seront amené.e.s à exploiter la base de données sur les diagnostics de performance énergétique des bâtiments résidentiels gérée par l’ADEME ainsi que des données de l’INSEE sur les logements et les caractéristiques sociales des populations les occupant.
+
+Le dossier portera sur la ville de ROUEN (Haute-normandie). Le choix du périmètre, du maillage (commune, quartier-IRIS, maille d’1km) utilisés reviendront à chacun des groupes.
+
+L’atelier et le cours seront évalués conjointement à travers 3 rendus :
+
+1. **un dossier technique (40%)** : de l’extraction des données à la mise en œuvre de l’analyse. devra présenter la base de données (contenu synthétique, producteur, type de données, volume, fréquence de mise à jour), les modes de collecte (sites et formats), la qualité et les limites des données (niveau de représentativité, type de contrôle réalisés, biais liés à la collecte, comparabilité, etc.), les usages et croisements possibles, ainsi que les précautions à prendre concernant le terrain retenu.
+
+2. **	un poster de présentation de la démarche et de ses résultats saillants (40%)** : les spécificités des logements quant à leur consommation énergétique et les contextes socio-économiques dans lesquels ils s’inscrivent seront au centre du poster. Formellement celui-ci sera doté des éléments suivants : Titre, problématique, présentation des méthodes utilisés, justification de la maille, du périmètre, des variables, présentation et discussion des principaux résultats, courte bibliographie. Le poster est nécessairement visuel : devront y figurer tableaux, graphiques, cartes et la place du texte y sera minimal. Des titres mettront en valeur les principales parties du poster.
+
+3. 	**un oral (20%)** au cours duquel seront restitués en 15 mn des éléments techniques phares et au cours duquel le poster sera commenté.
+Le travail se fera en groupes de 2 à 3 étudiants.
+
+
+## Références 
+
+- Nicolas, J.-P., Wawrzyniak, V., Déprés, C., Gondran, N. et Truchet-Aznar, S. (2025). Rendre compte de la vulnérabilité énergétique logement-mobilité des ménages d’un territoire. Un système d’indicateurs pour outiller les politiques publiques locales. Revue d’Économie Régionale & Urbaine, Janvier(1), 53-80. https://doi.org/10.3917/reru.251.0053.
+
+- Aja P-R, Ouadi L.,et Péron M. (2024) Les effets des réformes du diagnostic de performance énergétique sur sa fiabilité. Focus n°105, juin 2024, Conseil d’analyse économique.

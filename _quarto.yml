@@ -1,0 +1,31 @@
+project:
+  type: website
+  output-dir: docs
+website:
+  title: "DPE"
+  navbar:
+    left:
+      - text: A propos
+        href: index.qmd
+      - text: Données
+        menu:
+          - text: Choix de la zone d'étude
+            href: choix_geom.qmd
+          - text: Extraction des DPE
+            href: choix_dpe.qmd
+    right: 
+      - icon: github # add icons as navbar buttons
+        href: https://github.com/worldregio/dpe2025
+        target: _blank
+  page-footer:
+    background: dark
+    left: Copyright 2025-2026, Claude Grasland
+format:
+  html:
+    theme: 
+      light: minty    
+      dark: solar
+    css: styles.css
+    toc: true
+
+

@@ -1,0 +1,382 @@
+---
+title: "Extraction de la base DPE"
+subtitle: "Interesection avec la zone d'étude et son buffer"
+date: "15/09/2025"
+author: "Claude Grasland"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+library(knitr)
+
+library(dplyr)
+
+library(sf)
+library(mapview)
+library(mapsf)
+```
+
+
+On suppose que le choix de la zone d'étude a été décidé parmi les différentes  options possibles (*Cf. chapitre précédent*) et bien évidemment **justifié**. On va alors pouvoir passer à l'extraction des données de la base DPE ainsi qu'à la sélection des variables choisies pour l'étude ainsi qu'àleur éventuel **recodage** ou **nettoyage**.
+
+En pratique, il est intéressant de disposer de deux sous-dossiers :
+
+- le dossier **base** qui contient en vrac les différents fichiers statistiques ou géométriques qui ont été rassemblées au cours de la phase de moissonnage des informations. 
+
+```{r}
+list.files("base")
+```
+
+- la dossier **data**, dans lequel vous allez déposer les fichiers utiles à vos analyses et qui est au départ vide (si ce n'est pas le cas, détruisez les fichiers qui s'y trouvent)
+
+
+Le point important est de **bien documenter le passage de la base brute à la base propre** et de pouvoir tracer toutes les opérations effectuées afin de pouvoir ultérieurement modifier ou reproduire les opérations. C'est la raison pour laquelle il est recommandé d'utiliser à cette étape un **programme** plutôt qu'une succession de click.##
+
+> "Real mensch never click !"
+
+
+## 1. Choix de la zone d'étude
+
+La première étape consiste à construire un fichier donnant le **périmètre** de la zone d'étude sans s'occuper dans l'immédiat de ses subdivisions internes. On reprend donc l'une des solutions discutées au chapitre précédent et on créee un fichier géométrique **zone** que l'on enregistrera au format de son choix (*.shp, .geojson, .gpkg, .RDS*)
+
+
+- **Exemple** : on reprend la solution n°6 et on définit un carré de 10 kilomètres sur 10 centré sur la place du veiux marché à Rouen.
+
+```{r}
+# Chargement du fichier IRIS
+iris <- st_read("base/iris.geojson")
+
+# Extraction de l'IRIS central et projection
+ctr<- iris %>% filter(iris_code==765400104) %>% st_transform(2154)
+
+# Détermination des coordonnées projetées
+coo<- st_coordinates(st_centroid(ctr))
+Xctr<-coo[1]
+Yctr<-coo[2]
+
+# Calcul des points du polygone
+xmin<-Xctr-5000
+ymin<-Yctr-5000
+xmax<-Xctr+5000
+ymax<-Yctr+5000
+mybox <-c(xmin,ymin,xmax,ymax)
+names(mybox)<-c("xmin","ymin","xmax","ymax")
+
+# Transformation en objet sf
+poly<-st_as_sfc(st_bbox(mybox))
+zone<-data.frame(name = "zone", geometry = poly) %>% st_as_sf() 
+st_crs(zone) <- 2154
+
+# Projection en latitude longitude
+```
+
+
+```{r}
+zone <- st_transform(zone, 4326)
+
+# Visualisation de controle
+#mapview(zone)
+```
+
+
+On sauvegarde le fonds de carte au format .RDS
+
+```{r}
+saveRDS(zone,"data/zone.RDS")
+```
+
+
+
+## 2. Choix de la zone buffer
+
+Maintenant que nous connaissaons notre zone d'étude, nous allons extraire de la base DPE les lignes correspondant à notre zone d'étude. Mais nous allons au préalable adjoindra éventuellement une **zone buffer** c'est-à-dire un espace d'une certaine largeur autour de la zone d'étude. 
+
+Pour créer la zone buffer, il est nécessaire de projeter la zone d'étude en EPSG=2154 puis de choisir une distance en mètres. A titre d'exemple on va ajouter une zone buffer de 1000 mètres autour de notre zone d'étude.
+
+
+```{r}
+# lecture du fichier zone
+zone <- readRDS("data/zone.RDS")
+
+# Transformation en EPSG 2154
+zone <- st_transform(zone, 2154)
+
+# Créationdu buffer
+buff <-st_buffer(zone,dist = 1000)
+
+# Visualisation de contrôle
+#map1 <- mapview(zone)
+#map2 <- mapview(buff)
+#map1+map2
+```
+
+On sauvegarde le résultat au format .RDS
+
+
+```{r}
+saveRDS(buff,"data/buffer.RDS")
+```
+
+
+
+## 3. Extraction des DPE
+
+Nous allons maintenant extraire les données de la base DPE en retenant toutes celles qui sont situées dans la zone buffer et en ajoutant une variable permettant de préciser celles qui sont situées dans la zone d'étude et celles qui ont été ajoutées dans le buffer. A ce stade nous ne procédons à aucune sélection de variable et nous conservons la base dans son format initial sans modifications.
+
+### Chargement du tableau
+
+On charge un tableau englobant la zone d'étude : 
+
+```{r}
+don <- readRDS("base/dpe.RDS") 
+```
+
+### Transformation en fichier sf
+
+On utilise les coordonnées contenues dans le fichier pour passer à un fichier géométrique de type sf. Ces coordonnées sont en EPSG 2154 ce qu'il faut préciser :
+
+```{r}
+# simplification du nom
+don$x<-don$coordonnee_cartographique_x_ban
+don$y<-don$coordonnee_cartographique_y_ban
+
+# transformation en fichier sf
+map <- st_as_sf(don, coords = c("x","y"))
+
+# ajout de la projection
+st_crs(map)<- 2154
+
+```
+
+
+### Extraction des DPE
+
+
+Il suffit maintenant d'utiliser la fonction *st_interesction()* pour extraire les dpe situées dans la zone buffer. En veillant évidemment à ce que les deux fonds de carte aient la même projection.
+
+```{r}
+## Chargement de la zone d'étude et du buffer
+buffer <- readRDS("data/buffer.RDS") %>% st_transform(2154)
+zone <- readRDS("data/zone.RDS") %>% st_transform(2154)
+
+# Intersections avec la zone d'étude et le buffer
+dpe_zone <- st_intersection(map,zone)
+dpe <- st_intersection(map,buffer)
+
+# ajout de la variable zone
+dpe$zone <-as.factor(dpe$numero_dpe %in% dpe_zone$numero_dpe)
+levels(dpe$zone) <-c("Buffer","Zone")
+
+# comptage des DPE situées dans la zone d'étude et son buffer
+table(dpe$zone)
+```
+
+
+
+On ne sauvegarde pas tout de suite le fichier des dpe car on va lui ajouter des variables auxiliaires permettant d'effectuer des jointures vers d'autres bases de données auxiliaires. 
+
+## 4. Ajout de données auxiliaires
+
+On va ajouter pour terminer un certain nombre de données auxiliaires pouvant servir à enrichir les données dpe. Pour faciliter les liaisons entre les bases de données, on introduira dans la base dpe le code correspondant à ces données auxiliaires pour facliter les jointures ultérieures.
+
+
+### Communes
+
+On ajoute un fonds de carte de l'ensemble des communes qui sont contenues dans la zone buffer ou interesectent celle-ci.
+
+```{r}
+# Chargement des fonds de carte
+mapcom<-readRDS("base/mapcom.RDS") %>% st_transform(2154)
+buffer <- readRDS("data/buffer.RDS") %>% st_transform(2154)
+
+# Sélection des communes
+selcom<-st_intersection(mapcom, buffer)$INSEE_COM
+mapcom <-mapcom %>% filter(INSEE_COM %in% selcom)
+
+# Vérification
+#m1 <- mapview(buffer)
+#m2 <- mapview(mapcom)
+#m1+m2
+
+```
+
+Il n'est pas utile d'ajouter le code communal à la base dpe où il figure déjà. On enregistre directement le fichier
+
+```{r}
+saveRDS(mapcom, "data/mapcom.RDS")
+```
+
+
+### IRIS
+
+On effectue la même opération mais en prenant tous les iris des communes retenues dans la sélection précédente :
+
+```{r}
+## Chargement du fonds iris
+mapiris<-st_read("base/iris.geojson") %>% filter(com_code %in% selcom) %>% 
+  mutate(iris_code = as.character(iris_code),
+         iris_name = as.character(iris_name),
+         quart_code = as.character(iris_grd_quart_code),
+         quart_name = as.character(iris_grd_quart_name)) %>%
+  select(iris_code, iris_name, quart_code, quart_name, geometry) %>%
+  st_transform(2154)%>%
+  st_as_sf()
+
+# Vérification
+#m1 <- mapview(buffer)
+#m2 <- mapview(mapiris)
+#m1+m2
+
+```
+
+On sauvegarde le fonds IRIS de la zone d'étude : 
+
+```{r}
+saveRDS(mapiris,"data/mapiris.RDS")
+```
+
+
+On ajoute à la base DPE un code permettant d'effectuer le lien avec le fonds de carte des  IRIS :
+
+```{r}
+
+# Transforme le fonds de carte IRIS en tableau et ajoute un index
+tabiris<-st_drop_geometry(mapiris)
+tabiris$num <- 1:dim(tabiris)[1]
+
+#  Affecte chque dpe à un iris
+x<-as.numeric(st_intersects(dpe,mapiris))
+dpe$num <-x
+dpe <- left_join(dpe,tabiris) %>% select(-num)
+```
+
+### Grille 200 m
+
+On sélectionne maintenant les données de grille de 200m contenues dans la zone buffer.
+
+```{r}
+grid<-st_read("base/grid_rouen.geojson") %>% st_transform(2154)
+mapgrid<-st_intersection(grid, buffer)
+
+# Vérification
+#m1 <- mapview(buffer)
+#m2 <- mapview(mapgrid)
+#m1+m2
+```
+
+On sauvegarde le fichier magrid.RDS
+
+```{r}
+saveRDS(mapgrid,"data/mapgrid.RDS")
+```
+
+On va maintenant ajouter les coordonnées des points de grille au fichier des dpe pour faciliter les jointures ultérieures. On doit tenir compte ici du fait que certains logements ne tombent pas dans une grille pour des raisons de confidentialité mais celene concerne pas plus de 1% des DPE.
+
+```{r}
+# Transforme la grille en tableau et ajoute un index
+tabgrid<-st_drop_geometry(mapgrid) %>% select(idcar_200m)
+tabgrid$num <- 1:dim(tabgrid)[1]
+
+#  Affecte chque dpe à un carreau
+x<-as.numeric(st_intersects(dpe,mapgrid))
+
+dpe$num <-x
+dpe <- left_join(dpe,tabgrid) %>% select(-num)
+table(is.na(dpe$idcar_200m))
+```
+
+
+## 5. Selection de variables du fichier DPE
+
+
+Nous disposons désormais d'un fichier DPE complété par des variables supplémentaires relatives au code des communes, iris, quartier et grille de 200m ainsi que la localisation, permettant des analyses contextuelles, des agrégations, etc...
+
+Nous allons y ajouter les variables de la base proprement dite qui nous semblent utile aux analyses que nous souhaitons mener. Pour réduire la taille des variables catégorielles, nous les convertissons en facteur car ce format est beaucoup plus économique.
+
+```{r}
+x<-dpe %>% mutate(      id = numero_dpe,
+                        zone = as.factor(zone),
+                        com_code = as.factor(code_insee_ban), 
+                        com_name = as.factor(nom_commune_ban), 
+                        iris_code = as.factor(iris_code), 
+                        iris_name = as.factor(iris_name), 
+                        quart_code = as.factor(quart_code), 
+                        quart_name = as.factor(quart_name),
+                        idcar_200m = as.factor(idcar_200m),
+                        dat = as.integer(annee_construction),
+                        typ = as.factor(type_batiment),
+                        dpe = as.factor(etiquette_dpe),
+                        sup = as.numeric(surface_habitable_logement),
+                        con_tot = as.numeric(conso_5_usages_ep),
+                        con_m2 = as.numeric(conso_5_usages_par_m2_ep),
+                        ene = as.factor(type_energie_n1)
+                   ) %>%
+             select(id, zone,com_code, com_name, iris_code, iris_name,quart_code, quart_name,
+                    idcar_200m,dat,typ,dpe,sup, con_tot, con_m2, ene)
+kable(head(x),caption = "Extrait du fichier de données")
+```
+
+
+On ajoute un fichier de métadonnées :
+
+```{r}
+var <- names(x)
+label <- c("Identififiant DPE",
+           "Zone d'étude ou buffer",
+           "Code INSEE de la commune",
+           "Nom de la commune",
+           "Code INSEE de l'IRIS",
+           "Nom de l'IRIS",
+           "Code INSEE du quartier",
+           "Nom du quartier",
+           "Code INSEE du carreau de 200m",
+           "Ancienneté du bâtiment",
+           "Type de bâtiment",
+           "Classe DPE (A..G)",
+           "Surface habitable du logement",
+           "Consommation totale d'énergie primaire",
+           "Consommation totale d'énergie primaire par m2",
+           "Energie principale",
+           "Coordonnées géographiques")
+meta <- data.frame(var, label)
+kable(meta, caption = "Liste des variables sélectionnées ou ajoutées")
+```
+
+
+
+
+On sauvegarde le tout dans le fichier dpe.RDS (qui ne fait que 3 Mo) et on y ajoute le fichier dpe_meta.RDS
+
+```{r}
+saveRDS(x, "data/dpe.RDS")
+saveRDS(meta, "data/dpe_meta.RDS")
+```
+
+
+
+

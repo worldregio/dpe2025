@@ -1,0 +1,331 @@
+---
+title: "Choix de la zone d'étude"
+subtitle: "Quelles options ? "
+date: "15/09/2025"
+author: "Claude Grasland"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+library(knitr)
+
+library(dplyr)
+
+library(sf)
+library(mapview)
+library(mapsf)
+```
+
+
+
+Dans les cours précédents les étudiants ont été amenés à extraire des données de très grandes bases dont l'extension maximale couvrait les départements de la Seine Maritime et de l'Eure. Il s'agit désormais d'affiner le choix en se centrant sur l'objet d'étude principal qui est "*Rouen*". Mais qu'est ce que l'on entends au juste par "*Rouen*" ?
+
+Examinons rapidement quelques uns des choix possibles en se bornant à les visualiser sous la forme de cartes interactives (avec le package mapview) ou de cartes stattiques avec le package (mapsf).
+
+
+
+
+## Solution 1 : L'aire urbaine de Rouen (AAV=1)
+
+L'aire urbaine de Rouen (au sens de l'INSEE) se présente géométriquement comme suit : 
+
+```{r}
+# Chargement du fonds de carte
+map <- readRDS("base/mapcom.RDS")
+
+# Affichage
+mapview(map)
+
+```
+
+
+On peut résumer rapidement ses caractéristiques 
+
+```{r}
+sel<-map
+# Calculs
+nbc <- dim(sel)[1]
+sup <- as.numeric(st_area(st_union(sel))/1000000)
+pop <- sum(sel$POPULATION, na.rm=T)
+loc <- sum(sel$P21_LOG, na.rm=T)
+dpe <- sum(sel$nDPE,na.rm=T)
+
+tab<- c(nbc,sup, pop, loc, dpe)
+names(tab)<- c("nb. de communes", 
+               "superfice (km2)", 
+               "population (hab.)",
+               "nb. de logements",
+               "nb. de dpe")
+kable(tab, digits=0, caption = "Caractéristiques de l'aire urbaine de Rouen")
+```
+
+
+## Solution 2 : l'agglomération de Rouen (UU=1)
+
+
+L'agglomération de Rouen ou unité urbaine se présente géométriquement comme suit : 
+
+```{r}
+## Sélection 
+sel <- map %>% filter(UU==1)
+
+# Affichage
+mapview(sel)
+
+```
+
+On peut résumer rapidement ses caractéristiques 
+
+```{r}
+
+# Calculs
+nbc <- dim(sel)[1]
+sup <- as.numeric(st_area(st_union(sel))/1000000)
+pop <- sum(sel$POPULATION, na.rm=T)
+loc <- sum(sel$P21_LOG, na.rm=T)
+dpe <- sum(sel$nDPE,na.rm=T)
+
+tab<- c(nbc,sup, pop, loc, dpe)
+names(tab)<- c("nb. de communes", 
+               "superfice (km2)", 
+               "population (hab.)",
+               "nb. de logements",
+               "nb. de dpe")
+kable(tab, digits=0, caption = "Caractéristiques de l'agglomération de Rouen")
+```
+
+
+## Solution 3 : la métropole de Rouen (Metro=1)
+
+L'agglomération de Rouen ou unité urbaine se présente géométriquement comme suit : 
+
+```{r}
+## Sélection 
+sel <- map %>% filter(Metro==1)
+
+# Affichage
+mapview(sel)
+
+```
+
+On peut résumer rapidement ses caractéristiques 
+
+```{r}
+
+# Calculs
+nbc <- dim(sel)[1]
+sup <- as.numeric(st_area(st_union(sel))/1000000)
+pop <- sum(sel$POPULATION, na.rm=T)
+loc <- sum(sel$P21_LOG, na.rm=T)
+dpe <- sum(sel$nDPE,na.rm=T)
+
+tab<- c(nbc,sup, pop, loc, dpe)
+names(tab)<- c("nb. de communes", 
+               "superfice (km2)", 
+               "population (hab.)",
+               "nb. de logements",
+               "nb. de dpe")
+kable(tab, digits=0, caption = "Caractéristiques de l'agglomération de Rouen")
+```
+
+
+## Solution 4 : la commune de Rouen (INSEE_COM = 76540)
+
+La commune de Rouen se présente géométriquement comme suit : 
+
+```{r}
+
+## Sélection 
+sel <- map %>% filter(INSEE_COM == "76540")
+
+# Affichage
+mapview(sel)
+
+```
+
+On peut résumer rapidement ses caractéristiques 
+
+```{r}
+
+# Calculs
+nbc <- dim(sel)[1]
+sup <- as.numeric(st_area(st_union(sel))/1000000)
+pop <- sum(sel$POPULATION, na.rm=T)
+loc <- sum(sel$P21_LOG, na.rm=T)
+dpe <- sum(sel$nDPE,na.rm=T)
+
+tab<- c(nbc,sup, pop, loc, dpe)
+names(tab)<- c("nb. de communes", 
+               "superfice (km2)", 
+               "population (hab.)",
+               "nb. de logements",
+               "nb. de dpe")
+kable(tab, digits=0, caption = "Caractéristiques de l'agglomération de Rouen")
+```
+
+Si l'on retient ce choix, on pourra enrichir l'analyse par une étude des subdivisions interne de la commune à trois niveaux : 
+
+- en 42 zone IRIS 
+- en 10 quartiers regroupant plusieurs d'IRIS
+- en 2 rives de la Seine
+
+
+```{r}
+iris<-st_read("base/iris.geojson") %>% filter(com_code==76540) %>% 
+  mutate(iris_code = as.character(iris_code),
+         iris_name = as.character(iris_name),
+         quart_code = as.character(iris_grd_quart_code),
+         quart_name = as.character(iris_grd_quart_name)) %>%
+  select(iris_code, iris_name, quart_code, quart_name, geometry) %>%
+  st_as_sf()
+
+
+mapview(iris,zcol="quart_name", label = "iris_name" )
+```
+
+
+## Solution 5 : Commune de Rouen et communes voisines
+
+On peut aussi décider de sélectionner la commune de Rouen et celles qui lui sont contiguës c'est-à-dire qui partagent avec elle une frontière commune.
+
+
+```{r}
+# Extraction de Rouen
+rouen <- map %>% filter(INSEE_COM =="76540")
+
+# Interesection
+vois<-st_intersection(map,rouen,sparse = F)
+
+# Extraction de Rouen et des communes voisines
+sel <- map %>% filter(INSEE_COM %in% vois$INSEE_COM)
+
+# Affichage
+mapview(sel,label="NOM")
+```
+
+On peut résumer rapidement ses caractéristiques 
+
+```{r}
+
+# Calculs
+nbc <- dim(sel)[1]
+sup <- as.numeric(st_area(st_union(sel))/1000000)
+pop <- sum(sel$POPULATION, na.rm=T)
+loc <- sum(sel$P21_LOG, na.rm=T)
+dpe <- sum(sel$nDPE,na.rm=T)
+
+tab<- c(nbc,sup, pop, loc, dpe)
+names(tab)<- c("nb. de communes", 
+               "superfice (km2)", 
+               "population (hab.)",
+               "nb. de logements",
+               "nb. de dpe")
+kable(tab, digits=0, caption = "Caractéristiques de la zone constituée de la commune de Rouen et de ses voisines")
+```
+
+- **Variante** : On peut retoucher éventuellement la liste à la main pour ajouter une commune proche et non contigüe comme le Mesnil-Esnard. Ou bien utiliser un buffer pour inclure les communes situées à moins de x kilomètres
+
+## Solution 6 : Zone géométrique centrée sur Rouen
+
+On peut enfin décider de construire une zone d'étude définie par des critères **spatiaux** et non pas **territoriaux**. C'est-à-dire une forme géométrique dont le tracé est indifférent aux limites adminisratives mais se fonde sur des caractéristiques de **distance** par rapport à des points caractéristiques. 
+
+Supposons à titre d'exemple qu'on veuille définir un carré de 10 kilomètres sur 10 centré approximatvement sur le centre historique de la ville de Rouen. On choisit pour cela le centre de l'IRIS 7654000104 qui correspond à la place du vieux marché.
+
+Comme nous allons mesurer la distance de façon euclidienne, on projette au prélable le fonds de carte en EPSG 2154.
+
+```{r}
+ctr<- iris %>% filter(iris_code==765400104) %>% st_transform(2154)
+coo<- st_coordinates(st_centroid(ctr))
+Xctr<-coo[1]
+Yctr<-coo[2]
+kable(coo)
+```
+
+Nous déterminons alors les coordonnées des points d'un carré de côté 10 km dont le centre géométrique sera le centre de Rouen
+
+
+```{r}
+xmin<-Xctr-5000
+ymin<-Yctr-5000
+xmax<-Xctr+5000
+ymax<-Yctr+5000
+mybox <-c(xmin,ymin,xmax,ymax)
+names(mybox)<-c("xmin","ymin","xmax","ymax")
+kable(mybox)
+
+```
+
+Puis nous transformons ces coordonnées en polygone que l'on visualise après être revenu à la projection en latitude et longitude
+
+```{r}
+# Transformation
+poly<-st_as_sfc(st_bbox(mybox))
+zon<-data.frame(name = "zone", geometry = poly) %>% st_as_sf() 
+st_crs(zon) <- 2154
+zon <- st_transform(zon, 4326)
+
+# Visualisation
+mapview(zon, zcol="name")
+```
+
+La carré semble incliné lorsqu'on le visualise en projection EPSG 4326 mais il est en fait vertical dans la projection de référence française EPSG 2154. Lorsqu'on réalise des cartes avec map_sf on obtient une visualisation parfaitement verticale :
+
+```{r}
+zon<-st_transform(zon, 2154)
+com<-st_transform(map, 2154)
+iris<-readRDS("base/mapiris.RDS") %>% st_transform(2154)
+ctr<-st_transform(st_centroid(ctr), 2154)
+mf_map(zon, type="base", col="lightyellow")
+mf_map(com, type="base", col=NA, border="red", add=T, lwd=2)
+mf_map(iris, type="base", col=NA, border="red", add=T, lwd=1)
+mf_map(ctr, type = "base",col="blue", pch=20, add=T)
+mf_label(com, var="NOM",cex=0.8,overlap = F,halo = T)
+mf_layout("Zone d'étude de 10km x 10km centrée sur la place du Vieux Marché de Rouen", frame=T,scale = T, arrow=T, credits = "Source : IGN")
+
+```
+
+Comme on peut le voir, cette solution géométrique aboutit à découper les communes et également les IRIS dont les limites ne sont pas respectées. Est-ce un problème ?
+
+Pas nécessairement dans la mesure où on peut combiner cette zone d'étude spatiale avec une autre source de donnée spatiale, la grille de population de l'INSEE par carreaux de 1km ou même de 200m.
+
+```{r}
+grid200<-st_read("base/grid_rouen.geojson") %>% st_transform(2154)
+mf_map(zon, type="base", col="lightyellow")
+mf_map(grid200, type="base", col=NA, border="blue",add=T)
+mf_map(com, type="base", col=NA, border="red", add=T, lwd=2)
+mf_map(iris, type="base", col=NA, border="red", add=T, lwd=1)
+mf_map(ctr, type = "base",col="blue", pch=20, add=T)
+mf_label(com, var="NOM",cex=0.8,overlap = F,halo = T)
+mf_layout("Zone d'étude de 10km x 10km centrée sur la place du Vieux Marché de Rouen", frame=T,scale = T, arrow=T, credits = "Source : IGN")
+```
+Comme on peut le voir, la grille de 200m offre une couverture spatiale généralement plus fine que les IRIS et ne concerne que les zones ayant une population minimale. Elle permet donc un repérage beaucoup plus fin des caractéristiques sociales des zones où sont implantés les logements. Elle ne permet pas en revanche de saisir les effets de politiques communales ou de quartiers puisqu'un carreau peut rasselmbler des logements de deux communes différentes.
+
+
+
+
+
