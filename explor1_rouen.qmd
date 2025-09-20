@@ -34,6 +34,7 @@ editor:
 ```{r}
 library(knitr)
 library(dplyr)
+library(questionr)
 
 library(sf)
 library(mapsf)
@@ -70,15 +71,22 @@ On extrait du fichier DPE les diagnistics relatifs à la commune de Rouen et on 
 
 ```{r}
 map_dpe<-readRDS("data/dpe.RDS") %>%
-           filter(com_code == "76540") %>%
+           filter(com_code == "76540",
+                  substr(quart_code,1,5) == "76540") %>%
            select(quart_code, 
                   quart_name,
                   dpe,
+                  sup,
+                  con_tot,
                   con_m2,
                   dat,
-                  typ)
-don<-st_drop_geometry(map_dpe)
-kable(head(st_drop_geometry(don)), caption= "Extrait du fichier DPE")
+                  typ) %>% 
+          mutate(quart_code = as.character(quart_code),
+                 quart_name = as.character(quart_name))
+don<-st_drop_geometry(map_dpe) %>% filter(is.na(dpe)==F,
+                                          is.na(con_m2)==F)
+
+kable(head(don), caption= "Extrait du fichier DPE")
 ```
 
 ### Superposition
@@ -93,15 +101,53 @@ mf_layout("Localisation des DEP par quartiers de Rouen", frame = T, credits = "S
 ```
 
 
-## 2. Variable à expliquer (Y)
+## 2. Quelle mesure de précarité ?
 
-Quelle est la variable que nous souhaitons analyser ? Les passoires énergétiques sont en principe définies par l'appartenance aux catégories énergétiques F et G. Mais d'où viennent ces étiquettes ?
+Quelle est la variable que nous souhaitons analyser ? Les passoires énergétiques sont en principe définies par l'appartenance aux catégories énergétiques F et G.
+
+### Etiquette énergétique en 7 classes
+
+Quelle est la distribution générale des étiquettes énergétiques ? Réalisons un tableau et un graphique.
+
+```{r}
+#Tableau
+tab <- freq(don$dpe,cum = T,valid = F)
+kable(tab, caption = "Etiquettes énergétiques des logements")
+
+# Graphique
+mypal7<-c("green4","green3","lightgreen","yellow","goldenrod1","darkorange","red")
+plot(don$dpe, col=mypal7, 
+        main = "Etiquettes énergétiques des logements",
+        sub =  "Source : Base DPE, Commune de Rouen",
+        ylab = "Nombre de logements")
+
+```
+
+- Les catégories les plus fréquentes sont les catégories intermédiaires (C, D et E) qui représentent environ trois-quarts du parc de logement étudié. Les logements à faible consommation (A ou B) ne représentent que 2.5% du total. Les logements à forte consommation (F ou G) totalisent 13.5% du total 
+
+
 
 ### Etiquette et consommation d'énergie primaire par m2
 
-Même si la correspondance n'est pas parfaite, il existe un lien étroit entre la consommation d'énergie primaire par m2 de logement habitable et l'étiquette DPE attribuée par l'ADEME.
+Même si la correspondance n'est pas parfaite, il existe un lien étroit entre la consommation d'énergie primaire par m2 de logement habitable (en log)  et l'étiquette DPE attribuée par l'ADEME.
 
 ```{r}
+# Graphique R-Base
+mypal7<-c("green4","green3","lightgreen","yellow","goldenrod1","darkorange","red")
+boxplot(don$con_m2~don$dpe, 
+        col=mypal7, 
+        cex=0.2, 
+        log ="y",
+        xlab="Consommation d'énergie primaire par m2",
+        ylab = "Etiquette DPE",
+        main="Relation entre étiquettes et consommation d'énergie",
+        sub = "Source : Base DPE, Commune de Rouen")
+grid(lwd=1)
+```
+
+
+```{r, eval=FALSE}
+#Graphique ggplot2
 mypal7<-c("green4","green3","lightgreen","yellow","goldenrod1","darkorange","red")
 ggplot(don) + aes(x=dpe,y=con_m2)+
               geom_violin(aes(fill=dpe)) + 
@@ -114,5 +160,141 @@ ggplot(don) + aes(x=dpe,y=con_m2)+
                         )
 ```
 
-Ceci suggère que l'analyse pourrait dans certains cas porter sur cette **variable quantitative continue** plutôt que sur la variable **qualitative ordinale** qu'est l'étiquette.
 
+Ceci suggère que l'analyse pourrait dans certains cas porter sur cette **variable quantitative continue** plutôt que sur la variable **qualitative ordinale** qu'est l'étiquette. Mais en utilisant de préférence une échelle logarithmique. 
+
+```{r}
+
+ggplot(don, aes(x=con_m2)) +
+      geom_histogram()+ 
+      scale_x_log10("Consommation d'énergie primaire par m2 (log)") + 
+      scale_y_continuous("Nombre de logements") +
+      theme_light() +
+      ggtitle(label = "Consommation d'énergie primaire par m2",
+                      subtitle = "Source : Base DPE, Commune de Rouen"
+                        )
+
+```
+
+
+### Seuil énergétique des passoires
+
+On peut assez facilement déduire empiriquement le seuil d'apparition des passoires énergétiques à l'aide d'un **modèle Logit**  : 
+
+```{r}
+
+don$dpe2 <- don$dpe %in% c("F","G")
+mod1 <- glm(formula = dpe2~con_m2, family = "binomial", data=don)
+summary(mod1)
+plot(mod1$data$con_m2, 
+     mod1$fitted.values, 
+     cex=0.1, 
+     pch=20, 
+     col="red", 
+     log="x",
+     main = "Résultat du modèle Logit",
+     xlab = "Consommation d'énergie primaire par m2",
+     ylab = "Probabilité d'être une passoire énergétique",
+     subtitle = "Source : Base DPE, Commune de Rouen")
+points(357, 0.5, pch=20, cex=2)
+text(100, 0.55, "Probabilité = 0.5", col="blue")
+text(357, 0.01, "357 Kwh/m2/an", col="blue")
+abline(h=0.5, lty=2, col = "blue")
+abline(v=357, lty=2, col= "blue")
+
+```
+
+
+La valeur seuil obtenue est de **357 Kwh/m2**, ce qui est légèrement supérieur à la valeur de référence donnée par l'ADEME qui est de **330 Kwh/m2/an** pour le passage de la catégorie E à la catégorie F. On peut vérifier que l'approximation est nénamoins très proche de la réalité en comparant les passoires énergétiques déclarées par l'ADEME et l'estimation faite à partir du seuil observé grâce au modèle Logit :
+
+```{r}
+obs <-don$dpe2
+est <-don$con_m2 > 357
+conf<-table(obs,est)
+tabres <- addmargins(conf)
+tabres
+```
+
+
+## 3. Précarité par quartier
+
+
+### Pourcentage de passoires
+
+Si on part de la variable booléenne, on obtient facilement un pourcentage de passoires énergétiques par quartier :
+
+
+```{r}
+tab1 <- don %>% group_by(quart_code, quart_name) %>% 
+                summarise(tot = n(),
+                          pas = sum(dpe2)) %>%
+                mutate(pct = 100*pas/tot) %>%
+                arrange(pct)
+kable(tab1,
+      digits = c(0,0,0,0,2),
+      col.names = c("Code","Nom","Total", "N", "%"),
+      caption = "Nombre et proportion de passoires énergétiques par quartier")
+```
+
+On peut cartogaphier le résultat pour visualiser la distribution dans la commune : 
+
+```{r}
+map2 <- map_quart %>% left_join(tab1)
+
+mf_map(map2, type="choro",var="pct", 
+       breaks=c(0,5,10,20,100),
+       leg_title = "% passoires",
+       leg_val_rnd = 0,
+       leg_pos = "topleft")
+mf_map(map2, type="prop", var="pas", 
+       leg_title = "nb. passoires", 
+       leg_pos = "topright",
+       inches=0.2,
+       col="red")
+mf_layout("Distribtion des passoires énergétiques par quartiers à Rouen", 
+          arrow = F,
+          frame = T, 
+          credits = "Source : IGN & ADEME")
+```
+
+
+### Consommation moyenne d'énergie primaire par m2
+
+Supposons maintenant que l'on veuille calculer pour chaque quartier la valeur moyenne de conosmmation d'énergie par m2.
+
+
+```{r}
+tab1 <- don %>% group_by(quart_code, quart_name) %>% 
+                filter(is.na(con_tot)==F,
+                       is.na(sup) ==F) %>%
+                summarise(con_tot = sum(con_tot),
+                          sup = sum(sup)) %>%
+                mutate(con_m2 = con_tot/sup) %>%
+                arrange(con_m2)
+kable(tab1,
+      digits = c(0,0,0,0,2),
+      col.names = c("Code","Nom","Consommation totale", "Surface", "Consommation / m2"),
+      caption = "Consommation moyenne d'énergie primaire par m2 selon les quartiers")
+```
+
+
+On peut cartogaphier le résultat pour visualiser la distribution dans la commune : 
+
+```{r}
+map2 <- map_quart %>% left_join(tab1)
+
+mf_map(map2, type="choro",var="con_m2", 
+      breaks=c(150,180,220,240,280),
+       leg_title = "Kwh/m2/an",
+       leg_val_rnd = 0,
+       leg_pos = "topleft")
+mf_map(map2, type="prop", var="con_tot", 
+       leg_title = "Kwh", 
+       leg_pos = "topright",
+       inches=0.2,
+       col="red")
+mf_layout("Consommation d'énergie primaire par quartier à Rouen", 
+          arrow = F,
+          frame = T, 
+          credits = "Source : IGN & ADEME")
+```
