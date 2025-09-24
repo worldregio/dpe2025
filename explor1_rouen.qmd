@@ -34,7 +34,9 @@ editor:
 ```{r}
 library(knitr)
 library(dplyr)
+
 library(questionr)
+library(FactoMineR)
 
 library(sf)
 library(mapsf)
@@ -297,4 +299,47 @@ mf_layout("Consommation d'énergie primaire par quartier à Rouen",
           arrow = F,
           frame = T, 
           credits = "Source : IGN & ADEME")
+```
+
+
+## 4.  Classification des profils d'étiquette
+
+Une solution différente consiste à partir du tableau de contingence croisant les quartiers et les étiquettes pour en analyser la structure interne et en déduire une classification des quartiers.
+
+### Tableau de contingence
+
+On construite le tableau de contingence qui répartit les logements en fonction de leur étiquette et deleur quartier : 
+
+```{r}
+tab <- table(don$quart_name,don$dpe)
+tabcont <-as.matrix(tab)
+kable(addmargins(tabcont), caption = "Tableau de contingence croisant quartiers ét étiquettes DPE")
+```
+
+### Profils en ligne
+
+On peut ensuite examiner la répartition des profils en pourcentage :
+
+```{r}
+kable(lprop(tabcont), caption = "Profil des étiquettes énergétiques des quartiers")
+```
+
+### Analyse factorielle des correspondances
+
+On peut réaliser une AFC sur le tableau de contingence :
+
+```{r}
+afc <- CA(tabcont,graph = F)
+plot.CA(afc,title = "AFC sur les étiquettes énergétiques des quartiers de Rouen")
+```
+
+Cette analyse met en valeur la situation très particulière dy quartier Chatelet-Lombardie qui est le seul à ne comprendre aucune passoire énergétique (F et G) et concentre un nombre exceptionnel de logements d'étiquette B. S'agit-il d'un biais de collecte ? ou d'une spécificité de ce quartier ?
+
+### Classification ascendante hiérarchique
+
+On réalise une CAH sur les axes de l'AFC pour téablir une typologie des quartiers.
+
+```{r}
+cah <- HCPC(afc, nb.clust = 4,graph = F)
+plot.HCPC(cah,choice = "tree",title = "CAH sur les types énergétiques des quartiers")
 ```
