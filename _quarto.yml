@@ -17,6 +17,8 @@ website:
         menu:
           - text: Les quartiers de Rouen
             href: explor1_rouen.qmd
+          - text: Régression multiple
+            href: model1_rouen.qmd            
     right: 
       - icon: github # add icons as navbar buttons
         href: https://github.com/worldregio/dpe2025

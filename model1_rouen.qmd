@@ -1,0 +1,720 @@
+---
+title: "Modélisation 1 : Etude de la consommation d'énergie"
+subtitle: "Analyse de variance, régression simple, régression multiple"
+date: "31/09/2025"
+author: "Claude Grasland"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+
+
+```{r}
+library(knitr)
+library(dplyr)
+library(beanplot)
+library(sf)
+library(mapsf)
+library(RColorBrewer)
+```
+
+
+
+## (A) Préparation des données
+
+### Chargement du fichier
+
+On charge un fichier stocké au format interne de R appelé *dpe.RDS*. Il s'agit d'un fichier de type sf comportant la géométrie des localisationsd d'une zone d'étude centrée sur Rouen
+
+```{r }
+dpe<-readRDS("data/dpe.RDS")
+class(dpe)
+kable(head(dpe))
+```
+
+On peut afficher la carte des dpe en la superposant sur un fonds de carte des iris
+
+
+```{r}
+mapiris <- readRDS("data/mapiris.RDS")
+zone <- readRDS("data/zone.RDS")
+buffer <- readRDS("data/buffer.RDS")
+
+par(mar=c(0,0,0,0))
+plot(buffer$geom, col="gray90")
+plot(zone$geom, add=T, col="lightyellow")
+plot(mapiris$geom, add=T, col=NA, border="black")
+plot(dpe$geometry, add=T,col="red", pch=20, cex=0.1)
+```
+
+
+### Contenu du fichier
+
+Ce dossier contient les données DPE de la zone d'étude Le nom des variables a été changé par rapport au fichier original, donc on charge le tableau des métadonnées et on l'affiche
+
+```{r}
+dpe_meta<-readRDS("data/dpe_meta.RDS")
+kable(dpe_meta)
+```
+
+
+### Sélection des unités et recodage des variables 
+
+On élimine les coordonnées géographiques, on sélectionne la commune de Rouen et on retient un nombre limité de variables 
+
+```{r}
+## Sélectionne les lignes et colonnes
+don <- dpe %>% st_drop_geometry(dpe) %>% 
+               filter(substr(iris_code,1,5) == 76540,           # Choisit Rouen
+                      typ != "immeuble",   # Retire les appartements
+                      sup <300,            # Retire les logements > 300 m2
+                      dat> 1925) %>%       # Retire les logements de plus de 100 ans
+                 mutate(iris_code = as.character(iris_code),
+                        iris_name = as.character(iris_name),
+                       typ = as.factor(as.character(typ)), # Recode le type sans les immeubles
+                      anc = 2025-dat) %>%
+               select(iris_code,
+                      iris_name,
+                      dpe,
+                      con_tot,
+                      sup,
+                      con_m2,
+                      typ, 
+                      ene,
+                      anc,
+                      per) 
+
+
+## Elimine les données incomplètes
+don <- don[complete.cases(don),]
+
+## Ajuste le fonds des iris
+mapiris <- mapiris %>% filter(substr(iris_code,1,5)== 76540)
+               
+   
+
+```
+
+
+
+### Résumé de l'ensemble du tableau
+
+```{r}
+summary(don)
+```
+
+## (B) ANALYSE DE LA VARIABLE DEPENDANTE 
+
+On s'intéresse à la variable con_m2 qui est la consommation finale en Kwh/m2/an. Avant de l'utilise on doit s'assurer que sa distribution est approximativement gaussienne.
+
+### La distribution de con_m2 est-elle normale ?
+
+On fait un histogramme : 
+
+```{r}
+hist(don$con_m2, 
+     breaks = quantile(don$con_m2,probs = seq(0,1,0.1)),
+     col="lightyellow",
+     probability = TRUE)
+lines(density(don$con_m2),
+      col="red",
+      lwd=2)
+```
+
+La distribution n'est claiement pas symétrique.
+
+Que nous apprend la boxplot ?
+
+```{r}
+boxplot(don$con_m2, col="lightyellow",horizontal = T)
+```
+
+Il y a un grand nombe de valeurs exceptionnelles à droite
+
+
+### Solution n°1 : Retirer les valeurs exceptionnelles
+
+La distribution n'est clairement pas gaussienne. Et si on retire les valeurs > 400  en créant un nouveau fichier don2. 
+
+```{r}
+don2<-don[don$con_m2<400,]
+boxplot(don2$con_m2, col="lightyellow",horizontal = T)
+```
+
+
+```{r}
+hist(don2$con_m2, 
+     breaks = quantile(don2$con_m2,probs = seq(0,1,0.1)),
+     col="lightyellow",
+     probability = TRUE)
+lines(density(don2$con_m2),
+      col="red",
+      lwd=2)
+```
+
+### Solution n°2 : Transformation logarithmique
+
+Si on veut garder toutes les valeurs, on peut aussi passer en logarithme la variable
+
+
+
+
+```{r}
+don$log_con_m2<-log(don$con_m2)
+hist(don$log_con_m2, 
+     breaks = quantile(don$log_con_m2,probs = seq(0,1,0.1)),
+     col="lightyellow",
+     probability = TRUE)
+lines(density(don$log_con_m2),
+      col="red",
+      lwd=2)
+```
+
+La distribution devient unimodale et symétrique.
+
+```{r}
+
+boxplot(don$log_con_m2, col="lightyellow",horizontal = T)
+```
+
+Mais elle comporte toujours des valeurs exceptionnelles aux deux extrémités de la distribution cette-fois-ci.
+
+
+### Discussion : quelle solution est préférable ?
+
+- **Solution n°1** : elle a l'avantage d'aboutir à une distribution sans valeurs exceptionnelles. Mais elle retire de l'analyse les passoires énergétiques ce qui est évidemment dommage ...
+
+- **Solution n°2** : elle a l'avantage de conserver toutes les valeurs. Mais elle comporte toujours des valeurs excpetionnelles. Et elle aboutira à des modèles plus compliqués à interpréter.
+
+On va retenir dans ce cours la solution n°1 qui est plus simple pour des débutants ...
+
+
+
+## (C) REGRESSION LINEAIRE I : INTENSITE ENERGETIQUE ET SURFACE
+
+
+Y-a-t-il une relation entre la surface du logement et l'intensité ? En d'autres termes les grands logements ont-ils la même intensité energétique que les petits.
+
+### Diagramme 
+
+On fait le graphique
+
+```{r}
+plot(don2$sup,don2$con_m2, pch=20, cex=0.1, col="red")
+
+```
+
+### Corrélation
+
+Puis on teste le coefficient de Pearson et celui de Sperman
+
+```{r}
+cor.test(don2$sup,don2$con_m2)
+
+cor.test(don2$sup,don2$con_m2, method="spearman")
+```
+
+
+### Régression
+
+On calcule le modèle de régression
+
+```{r}
+mareg<-lm(don2$con_m2~don2$sup)
+summary(mareg)
+```
+
+
+```{r,fig.height=4}
+plot(don2$sup,don2$con_m2, xlab="Superficie (m2)",ylab = "Consommation (Kw/an/m2)",pch=19,cex=0.1)
+abline(mareg,col="red",lwd=1)
+```
+
+### Conclusion
+
+Le modèle nous indique que la consommation minimale est de 249 Kwh/an/m2 et qu'elle diminue de 0.85 Kwh chaque fois que la surface augmente de 1 m2. Un logement de 100 m2 aura donc une intensité énergétique de 249 - 86 = 133 Kw/an/m2. Ce modèle explique 8% de la variance.
+Bref, les petits logements sontplus énergivores que les grands logements. 
+
+
+
+
+## (D) REGRESSION LINEAIRE II : INTENSITE ENERGETIQUE ET ANCIENNETE
+
+
+Y-a-t-il une relation entre la surface du logement et l'ancienneté du logement ? En d'autres termes les logements anciens ont-ils la même intensité energétique que les logements récents
+
+### Diagramme 
+
+On fait le graphique
+
+```{r}
+plot(don2$anc,don2$con_m2, pch=20, cex=0.1, col="red")
+
+```
+
+### Corrélation
+
+Puis on teste le coefficient de Pearson et celui de Sperman
+
+```{r}
+cor.test(don2$anc,don2$con_m2)
+
+cor.test(don2$anc,don2$con_m2, method="spearman")
+```
+
+
+### Régression
+
+On calcule le modèle de régression
+
+```{r}
+mareg2<-lm(don2$con_m2~don2$anc)
+summary(mareg2)
+```
+
+
+```{r,fig.height=4}
+plot(don2$anc,don2$con_m2, xlab="Ancienneté (année)",ylab = "Consommation (Kw/an/m2)",pch=19,cex=0.1)
+abline(mareg2,col="red",lwd=1)
+
+```
+
+### Conclusion
+
+Le modèle nous indique que la consommation d'un logement récent est de 124 Kwh/an/m2 et qu'elle augemente de 1.67 Kwh chaque fois que l'ancienneté  de 1 ans. Un logement âgé de 20 ans aura donc une intensité énergétique de 124 + (50*1.67) = 207 Kw/an/m2. Ce modèle explique 31% de la variance.
+Bref, les logements anciens sont plus énergivores que les logements récents ...
+
+
+## (E) REGRESSION LINEAIRE III : EFFET COMBINE DES DEUX VARIABLES EXPLICATIVES
+
+
+On peut combiner les deux effets dans un même modèle.
+
+```{r}
+mareg3<-lm(don2$con_m2~don2$sup+don2$anc)
+summary(mareg3)
+```
+
+On remarque que les coefficients changent légèrement mais les deux variables explicatives demeurent significatives. Le modèle final explique 37% de la variance des consommations énergétiques. 
+
+
+
+
+
+
+
+## (F) TEST D'EGALITE DES MOYENNES : INTENSITE ENERGETIQUE ET TYPE DE LOGEMENT
+
+### Hypothèses
+
+On considère une variable **Y quantitative continue** définie sur une population de réféence P  et une variable **X qualitative à deux modalités** divisant P en deux sous population P1 et P2. 
+
+Soit par exemple la variable Y = con_m2 et la variable X = typ. On peut se demander si les maisons ont une intensité énergétique supérieure à celle des appartements.
+
+
+```{r}
+
+Y<-don2$con_m2
+nomY <-"Consommation énergétique en kW/an/m2"
+
+X<-don2$typ
+nomX <- "Type de logement"
+
+
+```
+
+### Visualisations
+
+Le plus simple est d'utiliser  **boxplot()** en version de base ...
+
+```{r}
+
+boxplot(Y~X)
+```
+
+
+
+... ou améliorée
+
+```{r}
+
+boxplot(Y~X,horizontal=T, xlab = nomY, ylab=nomX, col="gray80")
+```
+
+
+
+On peut aussi utiliser le package **beanplot()** en version simple ...
+
+```{r}
+library(beanplot)
+beanplot(Y~X,ll = 0)
+```
+
+... ou améliorée : 
+
+
+```{r}
+library(beanplot)
+beanplot(Y~X,horizontal=T, xlab = nomY, ylab=nomX,col = "gray80",ll=0)
+```
+
+
+### Paramètres principaux 
+
+On détermine la moyenne et l'écart-type de chaque échantillon avec la fonction tapply() couplée avec les fonctions mean(), sd() ou summary()
+
+
+```{r}
+tapply(Y,X, mean)
+tapply(Y,X,sd)
+tapply(Y,X, summary)
+```
+
+
+### Test d'égalité des moyennes 
+
+Si la distribution est gaussienne on utilise le test de Student :
+
+```{r}
+t.test(Y~X)
+```
+
+
+Si ce n'est pas le cas et s'il y a des valeurs exceptionnelles on préfèrera le test de Wilcoxon basé sur les rangs des valeurs (comme le coefficient de corrélation de Spearman)
+
+```{r}
+wilcox.test(Y~X)
+```
+
+### Conclusion 
+
+Les deux tests sont significatifs et on peut conclure sans risque d'erreur que les maisons sont plus énergivores que les appartements. Plus précisément elles ont une consommation supérieure en moyenne de 16 kW/an/m2 avec unintervalle de confiance compris entre 11 et 21 kW/an/m2
+
+
+## (G) ANALYSE DE VARIANCE  I : INTENSITE ENERGETIQUE ET PERIODE DE CONSTRUCTION
+
+### Hypothèses
+
+On considère une variable **Y quantitative continue** définie sur une population de réféence P  et une variable **X qualitative à k  modalités** divisant P en k sous population P1...Pk. 
+
+Soit par exemple la variable Y = con_m2 et la variable X = Période de construction.  X ressemble à la variable ancienneté mais elle est exprimée sous forme qualitative
+
+```{r}
+table(don2$per)
+```
+
+### Calcul des paramètres principaux 
+
+On va calculer les paramètres principaux de chacune des quatre sous population à l'aide de **la superfonction tapply()** dont la syntaxe est la suivante
+
+tapply(*variable à analyser, variable de partition  , function*)
+
+La fonction **tapply()** s'applique sur les tableaux (*data.frame*). Il y a des fonctions équvalentes pour les listes, les matrices, etc...
+
+```{r}
+moy<-tapply(X = don2$con_m2, INDEX = don2$per, FUN = mean)
+moy
+ect<-tapply(don2$con_m2, don2$per, sd)
+ect
+100*ect/moy
+```
+
+
+```{r}
+tapply(don2$con_m2, don2$per, summary)
+```
+
+
+### Visualisation
+
+On utilise comme précédemment boxplot() : 
+
+
+```{r}
+boxplot(don2$con_m2~don2$per, col="gray80",horizontal=T,las=T)
+```
+
+
+
+Ou bien beanplot() : 
+
+```{r}
+library(beanplot)
+beanplot(don2$con_m2~don2$per,col = "gray80", horizontal = T, ll=0,las=T)
+```
+
+
+### Modélisation simple
+
+La solution la plus simple est d'utiliser la fonction **lm()** que l'on a déjà vu pour la régression.
+
+```{r}
+modaov1<-lm(don2$con_m2~don2$per)
+summary(modaov1)
+```
+
+
+On peut ensuite appliquer une analyse de variance avec **anova()**  sur le modèle pour mesurer la variance totale et la variance résiduelle ainsi que la significativité de la relation. 
+
+```{r}
+anova(modaov1)
+```
+
+
+
+
+## (G) ANALYSE DE VARIANCE II : INTENSITE ENERGETIQUE ET TYPE DE COMBUSTIBLE
+
+### Hypothèses
+
+Soit par exemple la variable Y = con_m2 et la variable X = ene qui est le type de combustible. On examine les modalités de X  
+
+```{r}
+table(don2$ene)
+```
+
+On procède à un regroupement en trois grands types
+
+```{r}
+don2$ene3<-don2$ene
+levels(don2$ene3) <- c( "Hydrocarbures"   ,                                            
+ "Hydrocarbures"      ,             
+ "Hydrocarbures"       ,                      
+ "Hydrocarbures"        ,                                           
+ "Électricité"      ,                                           
+ "Électricité",
+"Hydrocarbures"     ,                                    
+"Hydrocarbures"         ,                                      
+"Hydrocarbures"          ,                                             
+"Hydrocarbures"           ,                                        
+ "Réseau urbain"             ,                     
+ "Réseau urbain" )
+table(don2$ene3)
+```
+
+
+
+### Calcul des paramètres principaux 
+
+On va calculer les paramètres principaux de chacune des quatre sous population à l'aide de **la superfonction tapply()** dont la syntaxe est la suivante
+
+tapply(*variable à analyser, variable de partition  , function*)
+
+La fonction **tapply()** s'applique sur les tableaux (*data.frame*). Il y a des fonctions équvalentes pour les listes, les matrices, etc...
+
+```{r}
+moy<-tapply(X = don2$con_m2, INDEX = don2$ene3, FUN = mean)
+moy
+ect<-tapply(don2$con_m2, don2$ene3, sd)
+ect
+100*ect/moy
+```
+
+
+```{r}
+tapply(don2$con_m2, don2$ene3, summary)
+```
+
+
+### Visualisation
+
+On utilise comme précédemment boxplot() : 
+
+
+```{r}
+boxplot(don2$con_m2~don2$ene3, col="gray80",horizontal=T,las=T)
+```
+
+
+
+Ou bien beanplot() : 
+
+```{r}
+library(beanplot)
+beanplot(don2$con_m2~don2$ene3,col = "gray80", horizontal = T, ll=0,las=T)
+```
+
+
+### Modélisation simple
+
+La solution la plus simple est d'utiliser la fonction **lm()** que l'on a déjà vu pour la régression.
+
+```{r}
+modaov2<-lm(don2$con_m2~don2$ene3)
+summary(modaov2)
+```
+
+
+On peut ensuite appliquer une analyse de variance avec **anova()**  sur le modèle pour mesurer la variance totale et la variance résiduelle ainsi que la significativité de la relation. 
+
+```{r}
+anova(modaov2)
+```
+
+
+
+
+## (H) MODELE FINAL
+
+### Régression 
+
+On reprend toutes nos variables explicatives qualitatives ou quantitatives dans un seul modèle mais en retirant l'ancienneté puisque l'on a mis les périodes de temps
+
+```{r}
+modfin<-lm(don2$con_m2~don2$sup +  don2$typ + don2$per + don2$ene3)
+summary(modfin)
+anova(modfin)
+```
+
+Toutes les variables sont significatives et le modèle résumé 47% de la variance totale. On peut résumernos découvertes comme suit : 
+
+**Toutes choses égales quant aux autre variables ...**
+
+- **sup** : l'intensité énergétique diminue de 0.5 kW/an/m2 chaque fois que la surface du logement augmente de 1 m2
+- **typ** : les maisons ont une consommation supérieure à celle des appartements d'environ 20 kW/an/m2
+- **per** : l'intensité varie d'une période à l'autre, globalement dans le sens d'une diminution au cours du temps, exception faite de la période 2006-12.
+- **ene3** : les logements chauffés à l'électricité sont les plus energivores et les logements raccordés au chauffage urbain les moins énergivores. 
+
+### Calcul des résidus
+
+
+On peut ajouter à notre tableau des logements la consommation théorique (con_m2_EST) déduite du modèle et la consommation résiduelle (con_m2_RES).
+
+```{r}
+don2$con_m2_EST <-modfin$fitted.values
+don2$con_m2_RES <- modfin$residuals
+```
+
+
+On peut alors examiner les logements qui s'écartent le plus des prédictions du modèle positivement ou négativement.
+
+
+### Résidus positifs
+
+```{r}
+don2 <- don2 %>% arrange(con_m2_RES)
+kable(head(don2,10))
+```
+
+On trouve plusieurs cas de maisons anciennes et de petite superficie chauffées à l'électricité qui cumulent les désavantage et devraient avoir une intensité énergétique de 300 W/an/m2 selon notre modèle. Or, elles affichent une consommation beaucoup plus réduite de moins de 100 kW/an/m2. S'agit-il de logements rénovés ?
+
+
+### Résidus négatifs
+
+```{r}
+don2 <- don2 %>% arrange(-con_m2_RES)
+kable(head(don2,10))
+```
+
+A l'inverse du cas précédent, on trouve ici de grands appartements, très anciens (avant 1948) ou datant de 2006-12 qui ne sont pas chauffés à l'élecricité et devrait avoir une consommation faible. Mais qui en fait sont des passoires énergétiques pour une raison qui reste à expliquer.
+
+### Y-a-t-il un effet local ?
+
+Au terme de l'analyse on peut se demander si les résidus positifs et négatifs se concentrent plutôt dans certains iris. Il y a deux manières de calculer l'effet local. Il suffit pour cela d'agréger les valeurs observées, estimées et résiduelles, par exemple en en faisant la moyenne.
+
+```{r}
+res_iris <- don2 %>% group_by(iris_code,iris_name) %>%
+                      summarise(n =n(),
+                                OBS = mean(con_m2),
+                                EST = mean(con_m2_EST),
+                                RES = mean(con_m2_RES)) %>%
+                      arrange(RES)
+kable(res_iris, digits=1)
+
+```
+
+
+
+Si notre modèle est correct, on déduit de l'analyse que certains lieux (iris) sont plus ou moins énergivores que prévu, toutes choses égales quant aux variables contrôlées. On se demandera par exemple :
+
+- pourquoi la consommation énergétique est plus faible que prévu dans l'iris de Ile Lacroix (-38)
+- pourquoi la consommation énergétique est plus forte que prévu dans l'iris	Jouvenet Ouest Rue d’Ernemont (+28)
+
+
+## (I) CARTOGRAPHIE DES EFFETS STRUCTURELS ET RESIDUELS
+
+
+Nous terminons notre analyse par la création de trois cartes :
+
+```{r}
+mapiris2 <- mapiris %>% left_join(res_iris) %>% filter(n >10)
+```
+
+
+
+### Consommation observée
+
+```{r}
+mypal<-brewer.pal(8,"YlOrRd")
+mybreaks <-c(100,130, 160, 190, 210, 240, 270, 300, 330)
+mf_map(mapiris, type="base", col="gray")
+mf_map(mapiris2, 
+       type = "choro",
+       var = "OBS",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "en kWh/an/m2",
+       leg_val_rnd = 0,
+       add=T)
+mf_layout(title = "Consommation observée",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+
+
+### Consommation théorique
+
+```{r}
+mypal<-brewer.pal(8,"YlOrRd")
+mybreaks <-c(100,130, 160, 190, 210, 240, 270, 300, 330)
+mf_map(mapiris, type="base", col="gray")
+mf_map(mapiris2, 
+       type = "choro",
+       var = "EST",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "en kWh/an/m2",
+       leg_val_rnd = 0,
+       add=T)
+mf_layout(title = "Consommation théorique",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+
+### Consommation résiduelle
+
+```{r}
+mypal<-rev(brewer.pal(8,"RdYlBu"))
+mybreaks <-c(-40, -30,-20, -10, 0, 10, 20, 30,60)
+mf_map(mapiris, type="base", col="gray")
+mf_map(mapiris2, 
+       type = "choro",
+       var = "RES",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "en kWh/an/m2",
+       leg_val_rnd = 0,
+       add=T )
+mf_layout(title = "Consommation résiduelle",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+

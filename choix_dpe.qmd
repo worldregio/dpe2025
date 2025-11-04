@@ -319,6 +319,7 @@ Nous disposons désormais d'un fichier DPE complété par des variables supplém
 Nous allons y ajouter les variables de la base proprement dite qui nous semblent utile aux analyses que nous souhaitons mener. Pour réduire la taille des variables catégorielles, nous les convertissons en facteur car ce format est beaucoup plus économique.
 
 ```{r}
+
 x<-dpe %>% mutate(      id = numero_dpe,
                         zone = as.factor(zone),
                         com_code = as.factor(code_insee_ban), 
@@ -329,6 +330,7 @@ x<-dpe %>% mutate(      id = numero_dpe,
                         quart_name = as.factor(quart_name),
                         idcar_200m = as.factor(idcar_200m),
                         dat = as.integer(annee_construction),
+                        per = as.factor(periode_construction),
                         typ = as.factor(type_batiment),
                         dpe = as.factor(etiquette_dpe),
                         sup = as.numeric(surface_habitable_logement),
@@ -337,8 +339,11 @@ x<-dpe %>% mutate(      id = numero_dpe,
                         ene = as.factor(type_energie_n1)
                    ) %>%
              select(id, zone,com_code, com_name, iris_code, iris_name,quart_code, quart_name,
-                    idcar_200m,dat,typ,dpe,sup, con_tot, con_m2, ene)
+                    idcar_200m,dat,per,typ,dpe,sup, con_tot, con_m2, ene)
 kable(head(x),caption = "Extrait du fichier de données")
+# réorganise les périodes
+x$per<-relevel(x$per,ref="avant 1948")
+
 ```
 
 
@@ -356,6 +361,7 @@ label <- c("Identififiant DPE",
            "Nom du quartier",
            "Code INSEE du carreau de 200m",
            "Ancienneté du bâtiment",
+           "Periode de construction",
            "Type de bâtiment",
            "Classe DPE (A..G)",
            "Surface habitable du logement",
@@ -365,6 +371,8 @@ label <- c("Identififiant DPE",
            "Coordonnées géographiques")
 meta <- data.frame(var, label)
 kable(meta, caption = "Liste des variables sélectionnées ou ajoutées")
+
+
 ```
 
 

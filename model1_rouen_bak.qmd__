@@ -1,0 +1,541 @@
+---
+title: "Modélisation 1 : Etude de la consommation d'énergie"
+subtitle: "Analyse de variance, régression simple, régression multiple"
+date: "31/09/2025"
+author: "Claude Grasland"
+format:
+  html:
+    embed-resources: true
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
+    toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+library(knitr)
+library(dplyr)
+library(beanplot)
+
+library(questionr)
+library(FactoMineR)
+
+library(sf)
+library(mapsf)
+library(ggplot2)
+
+```
+
+
+Dans cette première approche de modélisation, on va essayer de modéliser une variable dépendante Y quantitative en fonction de variables indépendantes quantitatives (X1..Xn) ou qualitatives (Q1..Qn).
+
+
+## 1. Données
+
+On reprend la procédure utilisée dans l'exploration mais en essayant de traviller au niveau des IRIS
+
+### Données géométriques
+
+
+On extrait du fond de carte des 42 IRIS la commune de Rouen et on crée un fonds de carte regroupant ceux-ci en 1 en  deux zones selon qu'on se trouve sur la rive droite ou la rive gauche de la Seine.
+
+```{r}
+map_iris <- readRDS("data/mapiris.RDS") %>% filter(substr(iris_code,1,5)=="76540")
+
+map_iris$rive <- as.factor(map_iris$quart_code %in% c("7654003","7654010"))
+levels(map_iris$rive) <-c("Rive Droite","Rive Gauche")
+map_iris$iris_code <- substr(map_iris$iris_code,7,9)
+
+map_rive <- map_iris %>% group_by(rive) %>%
+                         summarise() 
+map_com <- map_iris %>% summarise()
+
+
+mf_map(map_iris, type="typo",var="rive", border="white",lwd=0.5, leg_title = "Rives")
+mf_map(map_rive, type = "base", col=NA, add=T, border="black",lwd=1)
+mf_label(map_iris,var = "iris_code",
+         col = "black",
+         halo = T,
+         overlap = F)
+mf_layout("Code des IRIS de Rouen", frame = T, credits = "Source : IGN")
+```
+
+### Données statistiques
+
+On extrait du fichier DPE les diagnostics relatifs à la commune de Rouen et on sélectionne un nombre volontairement limité d'indicateurs.
+
+```{r}
+base <- readRDS("data/dpe.RDS") %>%
+                filter(com_code == "76540",
+                        substr(quart_code,1,5) == "76540",
+                         typ %in% c("maison", "appartement")) %>%
+                mutate(typ = as.factor(as.character(typ)))
+  
+  
+base$rive <- as.factor(base$quart_code %in% c("7654003","7654010"))
+levels(base$rive) <-c("Rive Droite","Rive Gauche")
+base$iris_code <- substr(base$iris_code,7,9)
+map_dpe<- base %>%
+           select(id,
+                  iris_code,
+                  iris_name,
+                  rive,
+                  dpe,
+                  ene,
+                  sup,
+                  con_tot,
+                  con_m2,
+                  dat,
+                  per,
+                  typ) %>% 
+          mutate(iris_code = as.character(iris_code),
+                 iris_name = as.character(iris_name))
+don<-st_drop_geometry(map_dpe) %>% filter(is.na(dpe)==F,
+                                          is.na(sup)==F,
+                                          is.na(con_m2)==F)
+
+kable(head(don), caption= "Extrait du fichier DPE")
+```
+
+### Superposition
+
+On superpose les deux sources de données en utilisant les localisations du fichier dpe : 
+
+```{r}
+
+mf_map(map_iris, type = "base", col="lightyellow", border="black",lwd=1)
+mf_map(map_dpe, type="base", col="red",pch=20, cex=0.1, add=T)
+mf_label(map_iris,var = "iris_code",
+         col = "black",
+         halo = T,
+         overlap = F)
+mf_layout("Localisation des DPE par IRIS à Rouen", frame = T, credits = "Source : IGN")
+```
+
+
+On remarque que certains IRIS ont très peu de DPE et ne pourront pas être valablement utilisés dans les analyses statistiques : 
+
+```{r}
+tab<- don %>% st_drop_geometry() %>%
+                  group_by(iris_code) %>%
+                  count() %>%
+                  arrange(n)
+kable(head(tab,10))
+
+```
+
+On décide de retirer au moins l'IRIS 006 qui correspond au port de Rouen et n'a que trois DPE
+
+```{r}
+don <- don %>% filter(iris_code != "006")
+```
+
+
+
+## 2. Régression simple
+
+
+Nous souhaitons modéliser la consommation d'énergie primaire (Y) des logements en fonction de leur superficie (X) en faisant l'hypothèse (raisonnable) que plus un logement est grand, plus sa consommation est importante.
+
+### Consommation totale d'énergie primaire (Y)
+
+On examine la variable à expliquer et on constate d'emblée que sa distribution n'est pas gaussienne et comporte des valeurs exceptionnelles. Le test de normalité de Shapiro-Wilks confirme que la distribution n'est pas gaussienne (p < 0.001).
+
+```{r}
+Y<-don$con_tot
+summary(Y)
+par(mfrow=c(1,1))
+hist(Y, 
+     breaks = quantile(Y, seq(0,1,0.1)),
+     main = "Consommation totale d'énergie primaire",
+     xlab="Echelle arithmétique",
+     probability = TRUE,
+     col="lightyellow")
+lines(density(Y),col="red",lwd=2)
+rug(Y, col="blue",lwd = 0.1)
+shapiro.test(sample(Y,1000))
+
+```
+
+En revanche elle se rapproche d'une gaussienne si on procède à une transformation logarithmique.  
+
+```{r}
+logY<-log10(don$con_tot)
+summary(logY)
+par(mfrow=c(1,1))
+hist(logY, 
+     breaks = quantile(logY, seq(0,1,0.1)),
+     main = "Consommation totale d'énergie primaire",
+     xlab="Echelle logarithmique décimale",
+     probability = TRUE,
+     col="lightyellow")
+lines(density(logY),col="red",lwd=2)
+rug(logY, col="blue",lwd = 0.1)
+shapiro.test(sample(logY,1000))
+
+```
+
+
+### Superficie des logements (X)
+
+
+On examine la variable explicative et on constate à nouveau que sa distribution n'est pas gaussienne et comporte des valeurs exceptionnelles. 
+
+```{r}
+X<-don$sup
+summary(X)
+par(mfrow=c(1,1))
+hist(X, 
+     breaks = quantile(X, seq(0,1,0.1)),
+     main = "Superficie des logements",
+     xlab="Echelle arithmétique",
+     probability = TRUE,
+     col="lightyellow")
+lines(density(X),col="red",lwd=2)
+rug(X, col="blue",lwd = 0.1)
+shapiro.test(sample(X,1000))
+
+```
+
+En revanche elle s'en rapproche si on procède à une transformation logarithmique. 
+
+```{r}
+logX<-log10(don$sup)
+summary(logX)
+par(mfrow=c(1,1))
+hist(logX, 
+     breaks = quantile(logX, seq(0,1,0.1)),
+     main = "Superficie des logements",
+     xlab="Echelle logarithmique décimale",
+     probability = TRUE,
+     col="lightyellow")
+lines(density(logX),col="red",lwd=2)
+rug(logX, col="blue",lwd = 0.1)
+shapiro.test(sample(logX,1000))
+
+```
+
+
+### Choix du modèle
+
+Il existe quatre modèles possibles pour mettre en relation X et Y selon les transformations logarithmiques qui sont opérées sur les variables.
+
+- Linéaire : $Y=a.X+b$
+- Exponentiel : $log(Y) = a.X+b <=> Y = e^{aX+b} <=> Y = e^b.e^{aX} <=> Y = b'.e^{a.X}$
+- Logarithmique : $Y=a.log(X)+b$
+- Exponentiel : $log(Y) = a.log(X)+b <=> Y = e^{a.log(X)+b}<=> Y = e^b.X^a<=> Y = b'.X^a$
+
+
+```{r, fig.width=8, fig.height=8}
+par(mfrow=c(2,2))
+
+# Linéaire
+r2<-100*cor(X,Y)**2
+ajust <- paste("Ajustement = ", round(r2,1),"%")
+plot(X,Y, pch=20, col="red", cex=0.2, main="Linéaire", sub=ajust)
+
+
+# Logarithmique
+r2<-100*cor(log(X),Y)**2
+ajust <- paste("Ajustement = ", round(r2,1),"%")
+plot(log(X),Y, pch=20, col="red", cex=0.2, main="Logarithmique", sub=ajust)
+
+
+# Exponentiel
+r2<-100*cor(X,log(Y))**2
+ajust <- paste("Ajustement = ", round(r2,1),"%")
+plot(X,log(Y), pch=20, col="red", cex=0.2, main="Exponentiel", sub=ajust)
+
+
+
+# Puissance
+r2<-100*cor(log(X),log(Y))**2
+ajust <- paste("Ajustement = ", round(r2,1),"%")
+plot(log(X),log(Y), pch=20, col="red", cex=0.2, main="Puissance", sub=ajust)
+
+```
+
+Quel modèle retenir ? 
+
+Si on prend comme critère le coefficient de détermination le **modèle linéaire** semble le plus efficace ($r^2 = 45.6\%$). Mais le graphique montre que l'ajustement est influencé par la présence de valeurs exceptionnelles. Il est donc préférable de retenir le **modèle puissance**  ($r^2 = 38.5\%$) qui utilise des variables plus proches des hypothèses gaussiennes. 
+
+### Ajustement du modèle
+
+On prépare un tableau de données ne comportant que les variables du modèle :
+
+```{r}
+# Tableau de données
+tabreg<-data.frame(id=don$id,
+                   iris_code = don$iris_code,
+                   iris_name = don$iris_name,
+                   Y=don$con_tot,X=don$sup)
+
+# Ajustement du modèle
+modreg <- lm(log(Y) ~ log(X), data=tabreg)
+
+# Résumé
+summary(modreg)
+exp(6.68)
+```
+
+
+L'équation du modèle est donc la suivante :
+
+$log(Y) = 6.680 \times log(X)^{0.655}$
+
+Ce qui donne après transformation :
+
+$Y = 796 \times X^{0.655}$
+
+L'exposant de la fonction puissance est inférieur à 1 ce qui signifie que l'accroissement de la consommation n'est pas proportionnel à la taille du logement mais augmente moins vite que prévu pour les grands logements. On peut tracer la courbe correspondante : 
+
+
+```{r}
+sup <- seq(1,150,1)
+ene <- 796*sup^0.655
+par(mfrow=c(1,1))
+plot(sup, 
+     ene,
+     type = "l",
+     col="red",
+     main = "Modèle 1 : Consommation en fonction de la superficie",
+     xlab = "Superficie en m2", 
+     ylab = "Consommation en Kwh/an")
+grid()
+```
+
+
+### Analyse des résidus
+
+On va maintenant calculer pour chaque logement sa consommation estimée ainsi que ses résidus absolus et relatifs :
+
+```{r}
+tabreg$Yest <-  796*tabreg$X^0.655
+tabreg$Yres_abs <- tabreg$Y - tabreg$Yest
+tabreg$Yres_rel <-tabreg$Y/tabreg$Yest
+
+```
+
+On peut alors examner les plus forts résidus absolus :
+
+```{r}
+tabreg<-tabreg %>% arrange(-Yres_abs)
+kable(head(tabreg,10),digits=1)
+```
+
+Ou les plus forts résidus relatifs : 
+
+```{r}
+tabreg<-tabreg %>% arrange(-Yres_rel)
+kable(head(tabreg,10),digits=1)
+```
+
+On remarque que certains IRIS semblent revenir souvent ce qui incite à agréger les données par IRIS pour recalculer les résidus au niveau des IRIS
+
+```{r}
+tabregiris <- tabreg %>% group_by(iris_code,iris_name) %>%
+                         summarise(Y = sum(Y),
+                                   Yest =sum(Yest)) %>%
+                         ungroup() %>%
+                         mutate(Yres_abs = Y -Yest,
+                                    Yres_rel = Y/Yest) %>%
+                        arrange(Yres_rel)
+  
+
+kable(tabregiris)
+```
+
+### Cartographie des résidus
+
+il ne reste plus qu'à cartographier le résultat pour obtenir un **indicateur de consommation d'énergie indépendant de la taille des logements**.
+
+
+```{r}
+mapregiris <- map_iris %>% left_join(tabregiris) 
+mapregiris$sign<-as.factor(mapregiris$Yres_abs>0)
+levels(mapregiris$sign) <- c("Négatif","Positif")
+
+mf_map(mapregiris, 
+       type="choro",
+       var="Yres_rel", 
+       border="white",
+       lwd=0.5, 
+       leg_title = "Résidu relatif",
+       leg_pos = "topleft")
+
+mf_map(mapregiris, type = "prop_typo", 
+       var=c("Yres_abs","sign"), 
+       leg_title = c("Résidu absolu","Signe"),inches=0.1,
+       leg_pos=c("left","bottomleft"),
+       add=T)
+mf_map(map_com, type="base",col=NA, add=T)
+
+mf_layout("Résidu du modèle de consommation d'énergie / surface", frame = T, credits = "",arrow=F)
+```
+
+
+
+## 4. Analyse de variance et test d'égalité des moyennes
+
+
+Nous passons maintenant à un autre type d'analyse visant à mettre en relation une variable quantitative continue (Y) avec une variable qualitative discrète (Q). On gardera systématiquement comme variable Y la consommation d'énergie par m2 (puisque nous savons que la consommation d'energie total dépend de la surface) et nous proposerons deux types de modèles selon que la variable qualitative a deux modalités ou plus.
+
+### Effet du type de logement
+
+Les maisons sont-elles plus énergivores que les appartements, toutes choses égales quant à leur surface ? On peut supposer que c'est le cas, mais il faut le prouver. On pose donc :
+
+- H1 : la consommation moyenne d'énergie par m2 des maisons est supérieure à celle des appartements. 
+- H0 : il n'y a pas de différence de conosmmation d'énergie par m2 entre les maisons et les appartements. 
+
+```{r}
+Q <- don$typ
+Y <- don$con_m2
+```
+
+On commence par dénombrer le nombre respectifs de maisons et d'appartements :
+
+```{r}
+t <- table(Q)
+t
+prop.table(t)
+barplot(t,col=c("lightyellow", "orange"))
+```
+
+
+On examine ensuite les distributions de consommation d'energie par m2 des deux types de logements avec barplot() :
+
+```{r}
+boxplot(Y~Q, 
+        horizontal = T, 
+        col=c("lightyellow", "orange"),
+        xlab = "Consommation d'énergie primaire par m2",
+        ylab = "type de logement"
+        )
+```
+
+
+
+
+Il est facile de teste H0 en utilisant un **test d'égalité des moyennes de Student** à l'aide de la fonction `t.test()` :
+
+```{r}
+t.test(Y~Q)
+```
+
+Le résultat indique clairement que les maisons (274 Kw/m2) consomment plus que les appartements (235 Kmh/m2) et que cette différence est très significative (p < 0.001) ce qui permet de rejeter H0
+
+Comme la distribution de Y n'est pas gaussienne on peut par précaution utiliser un autre test non paramétrique, celui de Wilcoxon qui utilise les rangs des observations.
+
+```{r}
+wilcox.test(Y~Q)
+```
+
+La conclusion est la même (p < 0.001) et on peut donc conclure sans risque d'erreur que les maisons consomment plus que les appartements. 
+
+
+On pourrait aboutir au même résultat en utilisant une analyse de variance qui nous indiquera, en plus du test, la part de variance de Y expliquée par la variable Q :
+
+```{r}
+mod3 <- lm(Y~Q)
+summary(mod3)
+```
+
+On voit que la part de variance expliquée est très faible (0.5%) mais néanmoins significative. on retrouve les résultats précédents à savoir que les maions ont une consommation supérieur de 39 Kw/m2 aux appartements. Si on note $I_{maison}$ la variable prenant la valeur 1 s'il s'agit d'une maison et 0 un appartemet, le modèle revient à : 
+
+$Y = 235.04 + 39.4 \times I_{maison}$
+
+
+### Effet de l'ancienneté du logement
+
+On reprend l'analyse de l'ancienneté mais en utilisant ici des classes de date de construction. EN première analyse on choisit 10 périodes de temps d'effectif égaux
+
+```{r}
+don2 <-don %>% filter(is.na(don$per)==FALSE)
+Y <- don2$con_m2
+Q <- don2$per
+table(Q)
+```
+
+
+On examine les valeurs moyennes de conosmmation par date : 
+
+```{r}
+tapply(Y,Q,mean)
+```
+
+Et on les représente sur un graphique :
+
+```{r}
+boxplot(Y~Q, horizontal=T, las=T)
+```
+
+On observe donc une réduction générale des consommations au cours du temps à quelques fluctuations près.
+
+
+Résumons ceci par un modèle d'analyse de variance additif :
+
+```{r}
+mod5 <- lm(Y~Q)
+summary(mod5)
+```
+
+
+ou plutôt multiplicatif car la distribution n'est pas gaussienne :
+
+```{r}
+mod6 <- lm(log(Y)~Q)
+summary(mod6)
+```
+
+On explique 36.2% de la variance. 
+
+
+
+## 4. Modèles de régression multivariés
+
+
+On reprend nos modèles en les intégrant dans une analyse de régression multiple. 
+
+
+### Consommation totale
+
+On ajoute au modèle de régression (de type multiplicatif) les facteurs qualitatifs : 
+
+```{r}
+don2 <- don %>% filter(is.na(per)==F)
+modfin1 <- lm(log(con_tot)~log(sup)+per+typ+rive, data=don2)
+summary(modfin1)
+```
+
+
+### Consommation par m2
+
+On construit un modèle de régression additif : 
+
+```{r}
+don2 <- don %>% filter(is.na(per)==F)
+modfin2 <- lm(con_m2~sup+per+typ+rive, data=don2)
+summary(modfin2)
+```
+
+
+
