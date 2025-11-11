@@ -13,12 +13,14 @@ website:
             href: choix_geom.qmd
           - text: Extraction des DPE
             href: choix_dpe.qmd
-      - text: Exploration statistique
+      - text: Analyse statistique
         menu:
-          - text: Les quartiers de Rouen
+          - text: Eploration
             href: explor1_rouen.qmd
-          - text: Régression multiple
-            href: model1_rouen.qmd            
+          - text: Régression multiple (1)
+            href: model1_rouen.qmd    
+          - text: Régression multiple (2)
+            href: model2_rouen.qmd   
     right: 
       - icon: github # add icons as navbar buttons
         href: https://github.com/worldregio/dpe2025

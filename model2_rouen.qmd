@@ -1,0 +1,684 @@
+---
+title: "Construction d'un modèle structure-résidu"
+subtitle: "Exercice d'application sur les DPE de Rouen"
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    toc-location: left
+    toc: true
+---
+
+
+```{r}
+library(knitr)
+library(dplyr)
+library(beanplot)
+library(sf)
+library(mapsf)
+library(RColorBrewer)
+```
+
+
+
+## (A) Préparation des données
+
+### Chargement du fichier
+
+On charge un fichier stocké au format interne de R appelé *dpe.RDS*. Il s'agit d'un fichier de type sf comportant la géométrie des localisations d d'une zone d'étude centrée sur Rouen
+
+```{r }
+dpe<-readRDS("data/dpe.RDS")
+
+
+```
+
+On peut afficher la carte des dpe en la superposant sur un fonds des iris et un fonds de la grille de population à 200 m
+
+```{r}
+
+mapgrid <- readRDS("data/mapgrid.RDS")
+buffer <- readRDS("data/buffer.RDS")
+mapcom <- readRDS("data/mapcom.RDS")
+mapcom<-st_transform(mapcom, 2154) %>% st_intersection(buffer)
+
+par(mar=c(0,0,0,0))
+plot(buffer$geom, col="gray95")
+plot(mapgrid$geom, add=T,  border="black",col="lightyellow",lwd=0.2)
+plot(mapcom$geom, add=T, col=NA, border="black")
+plot(dpe$geometry, add=T,col="red", pch=20, cex=0.1)
+```
+
+
+### Contenu du fichier
+
+Ce dossier contient les données DPE de la zone d'étude Le nom des variables a été changé par rapport au fichier original, donc on charge le tableau des métadonnées et on l'affiche
+
+```{r}
+dpe_meta<-readRDS("data/dpe_meta.RDS")
+kable(dpe_meta)
+```
+
+
+### Sélection des unités et recodage des variables 
+
+On élimine les coordonnées géographiques et on retire les immeubles
+
+```{r}
+## Sélectionne les lignes et colonnes
+don <- dpe %>% st_drop_geometry(dpe) %>% 
+                filter(typ != "immeuble") %>%   # Retire les appartements %>%       # Retire les logements de plus de 100 ans
+                 mutate(idcar_200m =as.character(idcar_200m),
+                        com_code = as.character(com_code),
+                        com_name = as.character(com_name),
+                       typ = as.factor(as.character(typ)) # Recode le type sans les immeubles
+                  ) %>%
+               select(idcar_200m,
+                      com_code,
+                      com_name,
+                      dpe,
+                      con_tot,
+                      sup,
+                      con_m2,
+                      typ, 
+                      ene,
+                      per) 
+
+
+## Elimine les données incomplètes
+don <- don[complete.cases(don),]
+
+
+```
+
+
+### Ajout de variables contextuelles
+
+On extrait de la grille 200m des variables contextuelles :
+
+```{r}
+context <- mapgrid %>% st_drop_geometry() %>%
+                    filter(men>9) %>%
+                   mutate(gri_logsoc = 100*log_soc/log,
+                          gri_pauv = 100*men_pauv/men,
+                          gri_prop = 100*men_prop/men,
+                          gri_revenu = ind_snv/ind,
+                          gri_vieux = 100*ind_65p/ind,
+                          gri_jeunes = 100*ind_0_17/ind) %>%
+                    select(idcar_200m, gri_logsoc,gri_pauv,gri_prop,gri_revenu,gri_vieux,gri_jeunes)
+
+ summary(context) 
+```
+
+Puis on ajoute ces variables contextuelles au tableau des dpe :
+```{r}
+don <- inner_join(don,context)
+```
+
+
+
+
+
+### Résumé de l'ensemble du tableau
+
+```{r}
+summary(don)
+```
+
+## (B) ANALYSE DE LA VARIABLE DEPENDANTE 
+
+On s'intéresse à la variable con_m2 qui est la consommation finale en Kwh/m2/an. Avant de l'utilise on doit s'assurer que sa distribution est approximativement gaussienne.
+
+### La distribution de con_m2 est-elle normale ?
+
+On fait un histogramme : 
+
+```{r}
+hist(don$con_m2, 
+     breaks = quantile(don$con_m2,probs = seq(0,1,0.1)),
+     col="lightyellow",
+     probability = TRUE)
+lines(density(don$con_m2),
+      col="red",
+      lwd=2)
+```
+
+La distribution n'est claiement pas symétrique.
+
+Que nous apprend la boxplot ?
+
+```{r}
+boxplot(don$con_m2, col="lightyellow",horizontal = T)
+```
+
+Il y a un grand nombe de valeurs exceptionnelles à droite
+
+
+
+Comme on veut garder toutes les valeurs, on passe en logarithme 
+
+
+
+
+```{r}
+don$log_con_m2<-log(don$con_m2)
+hist(don$log_con_m2, 
+     breaks = quantile(don$log_con_m2,probs = seq(0,1,0.1)),
+     col="lightyellow",
+     probability = TRUE)
+lines(density(don$log_con_m2),
+      col="red",
+      lwd=2)
+```
+
+La distribution devient unimodale et symétrique.
+
+```{r}
+
+boxplot(don$log_con_m2, col="lightyellow",horizontal = T)
+```
+
+Mais elle comporte toujours des valeurs exceptionnelles aux deux extrémités de la distribution cette-fois-ci.
+
+
+
+
+## (C) REGRESSION LINEAIRE I : INTENSITE ENERGETIQUE ET SURFACE
+
+
+Y-a-t-il une relation entre la surface du logement et l'intensité ? En d'autres termes les grands logements ont-ils la même intensité energétique que les petits.
+
+### Diagramme 
+
+On fait le graphique
+
+```{r}
+don$log_sup<-log(don$sup)
+plot(don$log_sup,don$log_con_m2, pch=20, cex=0.1, col="red")
+
+```
+
+### Corrélation
+
+Puis on teste le coefficient de Pearson et celui de Sperman
+
+```{r}
+cor.test(don$sup,don$log_con_m2)
+
+cor.test(don$sup,don$log_con_m2, method="spearman")
+```
+
+
+### Régression
+
+On calcule le modèle de régression
+
+```{r}
+mareg<-lm(don$log_con_m2~don$log_sup)
+summary(mareg)
+```
+
+
+```{r,fig.height=4}
+plot(don$log_sup,don$log_con_m2, xlab="log Superficie (m2)",ylab = "log Consommation (kW/an/m2)",pch=19,cex=0.1)
+abline(mareg,col="red",lwd=1)
+```
+
+### Conclusion
+
+Le modèle nous indique que la consommation minimale est une fonction non-linéaire de la surface du logement.
+
+$log(Y) = -0.384*log(X)+6.781$
+
+Ce qui revient à écrire :
+
+$Y = 881*X^{-0.384}$
+
+On peut tracer le graphique correspondant
+
+```{r}
+X <- seq(5,250,1)
+Y <- 881*(X**-0.384)
+plot(X,Y, type="l", 
+     col="red", 
+     lwd=2,
+     xlab="Superficie en m2",
+     ylab = "Consommation en kWh/m2/an")
+grid()
+```
+
+
+
+
+
+
+## (F) ANALYSE DE VARIANCE I : INTENSITE ENERGETIQUE ET TYPE DE LOGEMENT
+
+### Hypothèses
+
+On considère une variable **Y quantitative continue** définie sur une population de réféence P  et une variable **X qualitative à deux modalités** divisant P en deux sous population P1 et P2. 
+
+Soit par exemple la variable Y = con_m2 et la variable X = typ. On peut se demander si les maisons ont une intensité énergétique supérieure à celle des appartements.
+
+
+```{r}
+
+Y<-don$log_con_m2
+nomY <-"Consommation énergétique en kW/an/m2 (log)"
+
+X<-don$typ
+nomX <- "Type de logement"
+
+
+```
+
+### Visualisations
+
+
+
+```{r}
+
+boxplot(Y~X,horizontal=T, xlab = nomY, ylab=nomX, col="gray80")
+```
+
+
+### Paramètres principaux 
+
+On détermine la moyenne et l'écart-type de chaque échantillon avec la fonction tapply() couplée avec les fonctions mean(), sd() ou summary()
+
+
+```{r}
+tapply(Y,X, mean)
+tapply(Y,X,sd)
+tapply(Y,X, summary)
+```
+
+
+
+### Modélisation 
+
+
+```{r}
+modaov1<-lm(don$log_con_m2~don$typ)
+summary(modaov1)
+```
+
+
+
+### Conclusion
+
+Pour interpréter les coefficients on effectue une transformation exponentielle qui nous donne le taux d'accroissement par rapport à la période de départ.
+
+```{r}
+exp(modaov1$coefficients)
+```
+
+On voit ainsi grâce à l'intercept que la consommation moyenne des appartements est de 188.8 kWh/m2/an. Quant à celle des maisons elle est multipliée par 1.27 donc augmentée de 27%
+
+
+
+## (G) ANALYSE DE VARIANCE  II : INTENSITE ENERGETIQUE ET PERIODE DE CONSTRUCTION
+
+### Hypothèses
+
+On considère une variable **Y quantitative continue** définie sur une population de réféence P  et une variable **X qualitative à k  modalités** divisant P en k sous population P1...Pk. 
+
+Soit par exemple la variable Y = con_m2 et la variable X = Période de construction.  X ressemble à la variable ancienneté mais elle est exprimée sous forme qualitative
+
+```{r}
+table(don$per)
+```
+
+### Calcul des paramètres principaux 
+
+On va calculer les paramètres principaux de chacune des quatre sous population à l'aide de **la superfonction tapply()** dont la syntaxe est la suivante
+
+tapply(*variable à analyser, variable de partition  , function*)
+
+La fonction **tapply()** s'applique sur les tableaux (*data.frame*). Il y a des fonctions équvalentes pour les listes, les matrices, etc...
+
+```{r}
+moy<-tapply(X = don$log_con_m2, INDEX = don$per, FUN = mean)
+moy
+ect<-tapply(don$log_con_m2, don$per, sd)
+ect
+100*ect/moy
+```
+
+
+```{r}
+tapply(don$log_con_m2, don$per, summary)
+```
+
+
+### Visualisation
+
+
+```{r}
+boxplot(don$log_con_m2~don$per, col="gray80",horizontal=T,las=T)
+```
+
+
+### Modélisation 
+
+
+```{r}
+modaov2<-lm(don$log_con_m2~don$per)
+summary(modaov2)
+```
+
+
+### Conclusion
+
+Pour interpréter les coefficients on effectue une transformation exponentielle qui nous donne le taux d'accroissement par rapport à la période de départ.
+
+```{r}
+exp(modaov2$coefficients)
+```
+
+Les logements construits avant 1948 est donc en moyenne de 293 kWk/m2/an. Puis elle diminue au cours du temps en fonction de coefficients multiplicateurs de plus en plus faibles. Ainsi le coefficient est de 0.66 en 1948-74 soit une réduction de -34% , de 0.35 en 2013-21 soit une réduction de -65%...
+
+
+
+
+## (G) ANALYSE DE VARIANCE III : INTENSITE ENERGETIQUE ET TYPE DE COMBUSTIBLE
+
+### Hypothèses
+
+
+```{r}
+table(don$ene)
+```
+
+On procède à un regroupement en trois grands types
+
+```{r}
+don$ene3<-don$ene
+levels(don$ene3) <- c( "Hydroc."   ,                                            
+ "Hydroc."      ,             
+ "Hydroc."       ,                      
+ "Hydroc."        ,                                           
+ "Élect."      ,                                           
+ "Élect.",
+"Hydroc."     ,                                    
+"Hydroc."         ,                                      
+"Hydroc."          ,                                             
+"Hydroc."           ,                                        
+ "Rés.urb."             ,                     
+ "Rés.urb." )
+table(don$ene3)
+```
+
+
+
+### Calcul des paramètres principaux 
+
+On va calculer les paramètres principaux de chacune des quatre sous population à l'aide de **la superfonction tapply()** dont la syntaxe est la suivante
+
+tapply(*variable à analyser, variable de partition  , function*)
+
+La fonction **tapply()** s'applique sur les tableaux (*data.frame*). Il y a des fonctions équvalentes pour les listes, les matrices, etc...
+
+```{r}
+moy<-tapply(X = don$log_con_m2, INDEX = don$ene3, FUN = mean)
+moy
+ect<-tapply(don$log_con_m2, don$ene3, sd)
+ect
+100*ect/moy
+```
+
+
+```{r}
+tapply(don$con_m2, don$ene3, summary)
+```
+
+
+### Visualisation
+
+
+
+```{r}
+boxplot(don$log_con_m2~don$ene3, col="gray80",horizontal=T,las=T)
+```
+
+
+
+
+
+
+### Modélisation
+
+
+```{r}
+modaov3<-lm(log_con_m2~ene3, data=don)
+summary(modaov3)
+```
+
+
+
+### Conclusion
+
+On calcule l'exponentiel des coefficients pour obtenir l'effet multiplicatif 
+
+```{r}
+exp(modaov2$coefficients)
+```
+
+On voit qu'un chauffage aux hydrocarbure correspond à une consommation moyenne de 182.6 kWh/m2/an. Cette valeur est augmentée de 40% pour une chauffage électrique et réduite de 15% pour une chauffage par réseau urbain.
+
+
+
+## (H) MODELE FINAL
+
+### Régression 
+
+On reprend toutes nos variables explicatives qualitatives ou quantitatives dans un seul modèle mais en retirant l'ancienneté puisque l'on a mis les périodes de temps
+
+```{r}
+modfin<-lm(don$log_con_m2~don$log_sup +  don$typ + don$per + don$ene3)
+summary(modfin)
+anova(modfin)
+exp(modfin$coefficients)
+```
+
+### Analyse de variance
+On vérifie que toutes les variables sont significatives à l'aide d'une analyse de variance : 
+
+```{r}
+anova(modfin)
+```
+
+Toutes les variables sont significatives et le modèle résumé 47% de la variance totale. 
+
+### Paramètres
+
+On calcule l'exponentiel des coefficients pour les interpréter :
+
+```{r}
+exp(modfin$coefficients)
+```
+
+
+On peut résumernos découvertes comme suit : 
+
+**Toutes choses égales quant aux autre variables ...**
+
+
+- **sup** : l'intensité énergétique diminue selon une loi puissance de paramère -0.23
+- **typ** : les maisons ont une consommation supérieure à celle des appartements d'environ 20 %
+- **per** : l'intensité varie d'une période à l'autre, globalement dans le sens d'une diminution régulière
+-**ene3** : Par rapport aux logements chauffés aux hydrocarbures, les logements chauffés à l'électricité sont les plus energivores (+17%)  et les logements raccordés au chauffage urbain moins énergivores (-13%). 
+
+### Calcul des résidus
+
+On peut ajouter à notre tableau des logements la consommation théorique (con_m2_EST) déduite du modèle et la consommation résiduelle (con_m2_RES).
+
+```{r}
+don$con_m2_EST <-exp(modfin$fitted.values)
+don$con_m2_RES <- 100*((don$con_m2/don$con_m2_EST)-1)
+```
+
+
+On peut alors examiner les logements qui s'écartent le plus des prédictions du modèle positivement ou négativement.
+
+
+### Résidus négatifs
+
+```{r}
+tabres<- don %>% arrange(con_m2_RES) %>% select(3,6,8,19,10,7,20,21,4)
+kable(head(tabres,10))
+```
+
+On trouve plusieurs cas de maisons anciennes ou appartements de petite superficie chauffées à l'électricité qui cumulent les désavantage et devraient avoir une intensité énergétique de 300 W/an/m2 selon notre modèle. Or, elles affichent une consommation beaucoup plus réduite de moins de 100 kW/an/m2. S'agit-il de logements rénovés ? Ou bien le diagnostic était-il douteux ?
+
+
+### Résidus positifs
+
+```{r}
+tabres <- tabres %>% arrange(-con_m2_RES)
+kable(head(tabres,10))
+```
+
+A l'inverse du cas précédent, on trouve ici des appartements, assez anciens (avant 1948) qui ne sont pas chauffés à l'élecricité et devraient avoir une consommation faible. Mais qui en fait sont des passoires énergétiques pour une raison qui reste à expliquer. Les valeurs de consommation observées semblent toutefois assez étonnantes (>1000 kWh/m2/an)
+
+### Y-a-t-il un effet communal ?
+
+Au terme de l'analyse on peut se demander si les résidus positifs et négatifs se concentrent plutôt dans certaines communes.  Il suffit pour cela d'agréger les valeurs observées, estimées et résiduelles, par exemple en en faisant la moyenne.
+
+```{r}
+res_com <- don %>% group_by(com_code,com_name) %>%
+                      summarise(n =n(),
+                                OBS = median(con_m2),
+                                EST = median(con_m2_EST),
+                                RES = median(con_m2_RES)) %>%
+                      arrange(RES) %>%
+                      filter(n > 100)
+kable(res_com, digits=2)
+
+```
+
+On remarque que la commune qui a le score résiduel le plus défavorable est Mont-Saint-Aignan (+18%)  alors que c'est une commune plutôt riche.
+
+
+
+### Y-a-t-il un effet local
+
+On peut effectuer les mêmes calculs par grille de 200m, en ne conservant que les grilles où ont effectué au moins 100 DPE et en y ajoutant la moyenne des variables contextuelles
+
+```{r}
+res_grid <- don %>% group_by(idcar_200m) %>%
+                      summarise(n =n(),
+                                com_name = min(com_name),
+                                OBS = median(con_m2),
+                                EST = median(con_m2_EST),
+                                RES = median(con_m2_RES),
+                                gri_logsoc=mean(gri_logsoc),
+                                gri_pauv=mean(gri_pauv),
+                                gri_prop = mean(gri_prop),
+                                gri_revenu = mean(gri_revenu),
+                                gri_vieux = mean(gri_vieux),
+                                gri_jeune = mean(gri_jeunes)) %>%
+                      arrange(RES) %>%
+                      filter(n > 4)
+
+
+```
+
+Si notre modèle est correct, on déduit de l'analyse que certains lieux sont plus ou moins énergivores que prévu, toutes choses égales quant aux variables contrôlées. 
+
+On peut examiner les 10 grilles les plus energivores
+
+```{r}
+res_grid <- res_grid %>% arrange(-RES)
+kable(head(res_grid[,-1],10), digits=1)
+```
+
+Et les dix grilles les plus énergivores : 
+
+```{r}
+res_grid <- res_grid %>% arrange(RES)
+kable(head(res_grid[,-1],10), digits=1)
+```
+
+
+## (I) CARTOGRAPHIE DES EFFETS STRUCTURELS ET RESIDUELS
+
+
+Nous terminons notre analyse par la création de trois cartes :
+
+```{r}
+mapgrid2 <- mapgrid %>% inner_join(res_grid) 
+```
+
+
+
+### Consommation observée
+
+C'est la carte des consommations médianes observées par carreaux de grille de 200m.
+
+```{r}
+mypal<-brewer.pal(8,"YlOrRd")
+mybreaks <-c(00,130, 160, 190, 210, 240, 270, 300, 1000)
+mf_map(buffer, type="base", col="gray95")
+mf_map(mapgrid2, 
+       type = "choro",
+       var = "OBS",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "en kWh/an/m2",
+       leg_val_rnd = 0,
+       lwd=0.1,
+       add=T)
+mf_map(mapcom, type="base", col=NA, border="gray",add=T)
+mf_label(mapcom,var = "NOM",cex = 0.6,overlap = F )
+mf_layout(title = "Consommation observée",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+
+
+### Consommation théorique
+
+C'est la carte des consommations médianes théoriques par carreaux de grille de 200m selon notre modèle.
+
+
+```{r}
+mypal<-brewer.pal(8,"YlOrRd")
+mybreaks <-c(00,130, 160, 190, 210, 240, 270, 300, 1000)
+mf_map(buffer, type="base", col="gray95")
+mf_map(mapgrid2, 
+       type = "choro",
+       var = "EST",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "en kWh/an/m2",
+       leg_val_rnd = 0,
+              lwd=0.1,
+       add=T)
+mf_map(mapcom, type="base", col=NA, border="gray",add=T)
+mf_label(mapcom,var = "NOM",cex = 0.6,overlap = F )
+mf_layout(title = "Consommation théorique",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+### Consommation résiduelle
+
+C'est la carte de la médiane des résidus de note modèle, c'est-à-dire les cas où la consommation de la zone est supérieure ou inférieure à ce que laissaient prévoir les variables introduites dans le modèle.
+
+```{r}
+mypal<-rev(brewer.pal(8,"RdYlBu"))
+mybreaks <-c(-100, -40,-20, -10, 0,10, 20, 40,100)
+mf_map(buffer, type="base", col="gray95")
+mf_map(mapgrid2, 
+       type = "choro",
+       var = "RES",
+       pal=mypal,
+       breaks = mybreaks,
+       leg_title = "Ecart résiduel (%)",
+       leg_val_rnd = 0,
+              lwd=0.1,
+       add=T)
+mf_map(mapcom, type="base", col=NA, border="gray",add=T)
+mf_label(mapcom,var = "NOM",cex = 0.6,overlap = F )
+mf_layout(title = "Consommation résiduelle",scale = T, arrow=F, frame=T,credits = "Source : ADEME")
+```
+
+
+
+
