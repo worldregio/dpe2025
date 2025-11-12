@@ -1,12 +1,34 @@
 ---
-title: "Construction d'un modèle structure-résidu"
+title: "Analyse de variance et régression multiple (2)"
 subtitle: "Exercice d'application sur les DPE de Rouen"
-format: 
+date: "31/09/2025"
+author: "Claude Grasland"
+format:
   html:
     embed-resources: true
-    code-fold: true
-    toc-location: left
+    theme: yeti
+    smooth-scroll: true
+    fontsize: 0.9em
     toc: true
+    toc-depth: 2
+    toc-title: "."
+    bibliography: [bib.bib]
+    css: custom.css
+    crossrefs-hover: false
+    code-fold: true
+execute:
+  warning: false
+  message: false 
+  cache: false   
+  echo: true
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
 
@@ -507,11 +529,15 @@ On peut résumernos découvertes comme suit :
 - **sup** : l'intensité énergétique diminue selon une loi puissance de paramère -0.23
 - **typ** : les maisons ont une consommation supérieure à celle des appartements d'environ 20 %
 - **per** : l'intensité varie d'une période à l'autre, globalement dans le sens d'une diminution régulière
--**ene3** : Par rapport aux logements chauffés aux hydrocarbures, les logements chauffés à l'électricité sont les plus energivores (+17%)  et les logements raccordés au chauffage urbain moins énergivores (-13%). 
+- **ene3** : Par rapport aux logements chauffés aux hydrocarbures, les logements chauffés à l'électricité sont les plus energivores (+17%)  et les logements raccordés au chauffage urbain moins énergivores (-13%). 
 
 ### Calcul des résidus
 
 On peut ajouter à notre tableau des logements la consommation théorique (con_m2_EST) déduite du modèle et la consommation résiduelle (con_m2_RES).
+
+On calcule ensuite **l'erreur relative en %**  :
+
+$ERR = 100 \times (\frac{OBS}{EST}-1)$
 
 ```{r}
 don$con_m2_EST <-exp(modfin$fitted.values)

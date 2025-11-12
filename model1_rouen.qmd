@@ -1,6 +1,6 @@
 ---
-title: "Modélisation 1 : Etude de la consommation d'énergie"
-subtitle: "Analyse de variance, régression simple, régression multiple"
+title: "Analyse de variance et régression multiple (1)"
+subtitle: "Exercice d'application sur les DPE de Rouen"
 date: "31/09/2025"
 author: "Claude Grasland"
 format:

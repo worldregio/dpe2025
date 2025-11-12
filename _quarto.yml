@@ -15,11 +15,11 @@ website:
             href: choix_dpe.qmd
       - text: Analyse statistique
         menu:
-          - text: Eploration
+          - text: Exploration cartographique 
             href: explor1_rouen.qmd
-          - text: Régression multiple (1)
+          - text: Analyse de variance et régression multiple (1)
             href: model1_rouen.qmd    
-          - text: Régression multiple (2)
+          - text: Analyse de variance et régression multiple (2)
             href: model2_rouen.qmd   
     right: 
       - icon: github # add icons as navbar buttons
